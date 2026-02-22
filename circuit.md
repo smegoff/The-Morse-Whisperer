@@ -1,4 +1,4 @@
-Righto — here’s the **actual circuit you need** for The Morse Whisperer, assuming you’re feeding **audio into the Heltec WiFi LoRa 32 V3 ADC (GPIO4)**.
+**actual circuit you need** for The Morse Whisperer, assuming we are feeding **audio into the Heltec WiFi LoRa 32 V3 ADC (GPIO4)**.
 
 ### 1) Audio input conditioning (recommended “just works” version)
 
