@@ -10,6 +10,7 @@
    - SoftAP Wi-Fi + mobile-friendly Web UI
    - LoRa radio ON/OFF toggle (OFF by default)  [RadioLib if installed]
    - Menu option to show QR code to join Wi-Fi AP (no main-screen squeeze)
+   - OLED power saver: sleep after 5 mins inactivity, wake on activity ✅
 
   Board: Heltec WiFi LoRa 32 (V3) / Heltec-esp32 core 3.x
 
@@ -81,6 +82,7 @@ static const char* PROJECT_TAG  = "Beep -> Words";
 static const char* VERSION_STR  = "v1.0 (stable build)";
 
 // ===================== Wi-Fi AP =============================
+// PATCH: rename SSID to match project (and fix web UI text below)
 static const char* AP_SSID = "The Morse Whisperer";
 static const char* AP_PASS = "cwdecode123";     // 8+ chars required for WPA2
 
@@ -202,6 +204,27 @@ static uint8_t menuIdx = 0;
 
 // QR screen timer (optional auto-return)
 static uint32_t qrEnterMs = 0;
+
+// ===================== OLED Power Saver =====================
+// PATCH: sleep OLED after 5 mins of no input activity, wake instantly on activity.
+static const uint32_t OLED_SLEEP_MS = 5UL * 60UL * 1000UL; // 5 minutes
+static uint32_t lastActivityMs = 0;
+static bool oledSleeping = false;
+
+static void noteActivity() {
+  lastActivityMs = millis();
+  if (oledSleeping) {
+    oledSleeping = false;
+    u8g2.setPowerSave(0); // wake OLED
+  }
+}
+
+static void oledSleepCheck() {
+  if (!oledSleeping && (millis() - lastActivityMs) > OLED_SLEEP_MS) {
+    oledSleeping = true;
+    u8g2.setPowerSave(1); // sleep OLED
+  }
+}
 
 // ============================================================================
 // Forward declarations
@@ -859,6 +882,9 @@ static void processBlock() {
   uint32_t nowMs = millis();
 
   if (newTone != tonePresent) {
+    // PATCH: tone edge transition counts as "input activity" for OLED wake timer
+    noteActivity();
+
     uint32_t dur = nowMs - lastTransitionMs;
     lastTransitionMs = nowMs;
 
@@ -938,7 +964,8 @@ static String htmlPage() {
     <div><span class="k">SNR:</span> <span id="snr"></span></div>
     <div><span class="k">LoRa:</span> <span id="lora" class="pill"></span></div>
   </div>
-  <div class="small">Wi-Fi AP: "The Horse Whisperer"</div>
+  <!-- PATCH: keep web UI text consistent with AP_SSID -->
+  <div class="small">Wi-Fi AP: "The Morse Whisperer"</div>
 </div>
 
 <div class="box">
@@ -1182,8 +1209,13 @@ void setup() {
   delay(50);
 
   u8g2.begin();
+  u8g2.setPowerSave(0); // PATCH: ensure OLED is awake before splash
   oledSplash();
   delay(5000);
+
+  // PATCH: start OLED idle timer after splash
+  lastActivityMs = millis();
+  oledSleeping = false;
 
   computeGoertzelForFreq(targetToneHz);
   resetDetectorFloors();
@@ -1205,6 +1237,9 @@ void loop() {
   processBlock();
 
   BtnEvent ev = pollPrgButtonEvent();
+
+  // PATCH: any button event counts as input activity (wakes OLED)
+  if (ev != BTN_NONE) noteActivity();
 
   if (ev == BTN_PANIC) {
     uiPanicToMain();
@@ -1247,8 +1282,11 @@ void loop() {
 
   server.handleClient();
 
+  // PATCH: enforce OLED sleep after inactivity
+  oledSleepCheck();
+
   static uint32_t lastOled = 0;
-  if (millis() - lastOled > 120) {
+  if (!oledSleeping && (millis() - lastOled > 120)) {
     lastOled = millis();
     oledRender();
   }
