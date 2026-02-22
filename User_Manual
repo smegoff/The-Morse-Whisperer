@@ -1,0 +1,303 @@
+# The Morse Whisperer — User Manual (Heltec WiFi LoRa 32 V3)
+
+A CW (Morse) decoder for the Heltec WiFi LoRa 32 V3 with an OLED UI + mobile Web UI.
+
+Features:
+- Goertzel tone detector (ADC audio in)
+- Adaptive dot timing (auto WPM estimation)
+- RAW + EXPANDED output (common ham shorthand expansion)
+- SNR + SNR bar + SNR-based squelch gate
+- One-button deterministic menu (PRG button)
+- SoftAP Wi-Fi + mobile-friendly Web UI
+- Optional LoRa radio ON/OFF control (RadioLib if installed)
+- Optional Wi-Fi QR join screen
+- OLED power saving (sleeps after inactivity, wakes on signal/button)
+
+---
+
+## 1) Hardware you need
+
+### Board
+- **Heltec WiFi LoRa 32 (V3)** (ESP32-S3 + SX1262 + SSD1306 OLED)
+
+### Audio input (CW tone)
+You need a **clean audio CW tone** into an ADC pin:
+- From a receiver’s audio out (speaker/line out), OR
+- From an I/Q setup where you generate a CW audio tone output (less common)
+
+**Important:** The ESP32 ADC expects ~0–3.3V and *cannot take negative audio*.  
+Use a proper bias + attenuation network. Minimum recommended:
+- AC coupling capacitor
+- Voltage bias to mid-rail (~1.65V)
+- Divider/limiter so peaks stay in range
+
+If you feed raw headphone audio straight in, you’ll get clipping, weird thresholds, and sadness.
+
+### Pins (defaults in code)
+- **ADC audio input:** `GPIO4` (changeable)
+- **PRG button:** `GPIO0` (active LOW, built-in)
+- **OLED:** SDA=GPIO17, SCL=GPIO18, RST=GPIO21 (as defined)
+- **VEXT control:** GPIO36 (board-dependent; see troubleshooting)
+- **LoRa pins:** NSS=8, RST=12, DIO1=14, BUSY=13, SCK=9, MISO=11, MOSI=10
+
+---
+
+## 2) Software requirements
+
+### Arduino IDE / PlatformIO
+Either works.
+
+**Arduino IDE**
+- Board package: Heltec ESP32 core (or ESP32 core compatible with your V3)
+- Libraries:
+  - **U8g2** (required)
+  - **RadioLib** (optional, for LoRa enable/disable)
+  - **qrcode.h** support (optional, for QR screen)
+    - Either ESP32 core’s QR API OR RicMoo QRCode library
+
+---
+
+## 3) Build and flash
+
+1. Open the sketch in Arduino IDE
+2. Select the correct board:
+   - Heltec WiFi LoRa 32 (V3) / ESP32-S3 variant used by your core
+3. Select correct port
+4. Compile and upload
+
+On boot you should see a splash screen on the OLED and serial output at **115200** baud.
+
+---
+
+## 4) First use (quick start)
+
+1. Power the board via USB
+2. Confirm OLED splash appears
+3. Inject CW audio into the configured ADC pin (default GPIO4)
+4. Use **Calibrate** to lock onto the tone
+5. Watch decoded output on OLED and/or Web UI
+
+---
+
+## 5) OLED UI guide
+
+### Main screen
+Shows:
+- Mode: `RX` or `TRAIN`
+- Target tone (Hz)
+- Estimated WPM
+- SNR ratio (shown as `SNRx`)
+- SNR bar
+- Tail of RAW decoded text
+
+### Menu access (PRG button)
+- **Hold ~1s:** enter Menu / Select (depending on context)
+- **Hold ~2s:** “Panic” back to main screen (from anywhere)
+
+### Menu behaviour (deterministic)
+Inside MENU:
+- **Short press:** next menu item
+- **Hold ~1s:** select menu item
+
+### Menu items
+- **Training:** Toggle training mode (can auto-calibrate)
+- **Expand:** Toggle shorthand expansion into EXPANDED buffer
+- **Calibrate:** Run tone detection and lock target frequency
+- **Tone:** Adjust tone in 10 Hz steps
+- **Sensitivity:** Adjust detector sensitivity
+- **Squelch:** Adjust SNR gate threshold
+- **LoRa Radio:** Toggle LoRa radio standby/sleep (if RadioLib)
+- **Wi-Fi QR:** Show QR join screen for the AP (if QR supported)
+- **Clear:** Clear RAW + EXPANDED buffers
+- **Exit:** Return to main
+
+### OLED power saving
+- OLED sleeps after inactivity (default 5 minutes)
+- Wakes on:
+  - CW tone activity
+  - button press
+
+---
+
+## 6) Web UI guide (phone-friendly)
+
+The device runs a Wi-Fi Access Point (SoftAP). Connect to it, then open the status page.
+
+### Connect to Wi-Fi
+- SSID: `The Morse Whisperer` *(configurable in code)*
+- Password: `cwdecode123` *(configurable in code)*
+
+### Open the Web UI
+- Browse to: `http://192.168.4.1/` (typical SoftAP address)
+
+### What you’ll see
+- Mode (RX/TRAIN)
+- Tone (Hz)
+- WPM estimate
+- SNR value
+- LoRa status
+- RAW decoded output
+- EXPANDED decoded output
+
+### Web UI controls
+- **Toggle Training**
+- **Calibrate**
+- **Clear**
+- **LoRa On/Off**
+- Expand shorthand checkbox
+- Set Tone (Hz input + Set button)
+- Sensitivity slider (live)
+- Squelch slider (live)
+
+The Web UI refreshes automatically.
+
+---
+
+## 7) Calibration (tone lock)
+
+Calibration finds the strongest tone between roughly 400–1000 Hz (coarse) then refines around the peak.
+
+Best results:
+- Play a steady CW sidetone or stable carrier beat tone
+- Avoid wideband noise and heavy clipping
+- Keep audio level moderate (not maxed)
+
+To calibrate:
+- OLED menu: **Calibrate**
+- Web UI: **Calibrate**
+
+After calibration:
+- The target tone updates (e.g. 650–800 Hz typical)
+- Detector thresholds reset for the new tone
+
+---
+
+## 8) Sensitivity + Squelch (how they interact)
+
+### Sensitivity
+Controls how aggressively the detector decides “tone present”.
+- Too low: misses dits/dahs
+- Too high: triggers on noise (false decode)
+
+### Squelch (SNR gate)
+A second layer: if SNR is below threshold, the detector is forced OFF.
+- Higher squelch = quieter but may miss weak signals
+- Lower squelch = more sensitive but noisier
+
+A sane starting point:
+- Sensitivity: **1.0**
+- Squelch: **1.2–1.8** (depends on your audio chain)
+
+---
+
+## 9) EXPANDED output
+
+EXPANDED mode replaces common abbreviations with phrases.
+
+Examples:
+- `CQ` → “Calling any station”
+- `DE` → “from”
+- `TNX` → “thanks”
+- `QTH` → “location”
+
+Note:
+- EXPANDED is word-based. It expands at word boundaries.
+
+---
+
+## 10) LoRa radio control (optional)
+
+If **RadioLib** is installed and compatible:
+- You can toggle LoRa radio standby/sleep from:
+  - OLED menu: **LoRa Radio**
+  - Web UI: **LoRa On/Off**
+
+If RadioLib is not installed:
+- LoRa status shows as `N/A`
+- Toggle does nothing (but won’t break the build)
+
+---
+
+## 11) Troubleshooting
+
+### OLED is blank
+Common causes:
+- VEXT not enabled or wrong polarity
+  - The sketch sets `VEXT_ON_LEVEL = LOW`
+  - Some revisions need `HIGH`
+- I2C pins differ on your board core definition
+
+Try:
+- Flip `VEXT_ON_LEVEL` from `LOW` to `HIGH`
+- Confirm OLED pins match your board’s schematic
+
+### Web UI doesn’t load
+- Ensure you connected to the SoftAP SSID (not your normal Wi-Fi)
+- Check IP via OLED QR screen or Serial output
+- Default SoftAP IP is usually `192.168.4.1`
+
+### Decoding is garbage / random characters
+Almost always audio chain issues:
+- ADC clipping (too much level)
+- No mid-rail bias (audio swinging negative)
+- Tons of noise or hum
+- Wrong target tone (run calibrate)
+
+Fixes:
+- Reduce audio level
+- Add proper bias/attenuation
+- Calibrate again
+- Increase squelch slightly
+
+### It decodes but timing is weird
+- Dot timing adapts based on your mark durations
+- Very noisy conditions cause false short marks → dot estimate goes sideways
+
+Fixes:
+- Raise squelch slightly
+- Reduce sensitivity slightly
+- Improve audio filtering / tone purity
+
+---
+
+## 12) Safety / sanity notes
+
+- Do not exceed ADC voltage limits (0–3.3V).
+- Use AC coupling + bias network.
+- Keep wires short and avoid noisy power supplies if you can.
+- If you’re feeding from a radio speaker output, consider a divider and/or an isolation transformer.
+
+---
+
+## 13) Default configuration (at a glance)
+
+- Sample rate: `8000 Hz`
+- Block size: `160 samples` (~20ms)
+- Default target tone: `700 Hz`
+- Sensitivity: `1.0`
+- Squelch: `1.2`
+- SoftAP SSID: `The Morse Whisperer`
+- SoftAP password: `cwdecode123`
+
+---
+
+## 14) Suggested “known good” setup
+
+- Receiver sidetone around **600–800 Hz**
+- Audio into ADC with:
+  - AC coupling capacitor
+  - Bias to mid-rail
+  - Level adjusted so ADC isn’t clipping
+- Start with:
+  - Sensitivity 1.0
+  - Squelch 1.4
+- Run **Calibrate**
+- Send a test message slowly then increase speed
+
+---
+
+## Licence / credits
+
+- Uses U8g2 (OLED)
+- Optional RadioLib (LoRa)
+- Optional QRCode library support (either ESP32 core QR API or RicMoo QRCode)
