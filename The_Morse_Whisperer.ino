@@ -81,7 +81,7 @@ static const char* PROJECT_TAG  = "Beep -> Words";
 static const char* VERSION_STR  = "v1.0 (stable build)";
 
 // ===================== Wi-Fi AP =============================
-static const char* AP_SSID = "The Horse Whisperer";
+static const char* AP_SSID = "The Morse Whisperer";
 static const char* AP_PASS = "cwdecode123";     // 8+ chars required for WPA2
 
 // ===================== Board Pins (Heltec V3) ===============
