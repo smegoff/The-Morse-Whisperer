@@ -78,4 +78,4 @@ Different beast: needs bias and an amp. For an easy life:
 * Don’t feed AC audio straight in without the **bias midpoint**.
 * Always share **ground** between audio source and Heltec.
 
-If you tell me what your audio source actually is (radio headphone out, line-out, speaker, discriminator, etc.), I can give you the best resistor values so it lands right in the sweet spot without clipping.
+
