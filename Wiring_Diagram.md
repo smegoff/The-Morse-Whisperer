@@ -1,163 +1,125 @@
-# Wiring & Breadboard Layout
-For standard 1–30 / A–E F–J split breadboard
+# Wiring Diagram (Heltec WiFi LoRa 32 V3 + OP07CP Front‑End)
+
+This wiring diagram matches the **OP07CP breadboard front-end** (3.3V single-supply, biased ADC input) used by **The Morse Whisperer** sketch.
+
+It’s designed for **audio/CW-ish tones** (e.g., from a receiver headphone/line out), conditioned into the ESP32 ADC range (0–3.3V) by biasing the signal around **mid-rail (~1.65V)**.
 
 ---
 
-## Why Biasing Is Required
+## TL;DR signal path
 
-The ESP32 ADC cannot read negative voltages.
-
-Audio is AC and swings positive and negative.
-
-We must:
-1. AC-couple the signal
-2. Bias it to ~1.65V (mid-rail)
-3. Limit voltage into ADC
+**Radio audio out** → **10µF coupling cap** → **OP07CP non-inverting amp (≈11× gain)** → **1k series** → **Heltec ADC (GPIO4)**  
+Bias network holds the “zero” point at **~1.65V** so the ADC never sees negative voltage.
 
 ---
 
-# Circuit Overview
+## Pin mapping (Heltec WiFi LoRa 32 V3)
 
-Audio In → AC Coupling → Bias Node (~1.65V) → Series Resistor → ADC Pin
+| Function | Heltec pin | Notes |
+|---|---|---|
+| 3.3V | **3V3** | Power for the OP07CP + bias divider |
+| Ground | **GND** | Common ground for everything |
+| ADC input | **GPIO4** | Must match the sketch (`ADC_PIN = 4`) |
 
-Bias node created by 100k / 100k divider from 3.3V to GND.
-
----
-
-# Component List
-
-| Part | Value |
-|------|-------|
-| R1 | 100k |
-| R2 | 100k |
-| R3 | 10k |
-| C1 | 100nF–1µF |
-| C2 | 10nF–100nF (optional smoothing) |
-| Optional | 2x 1N4148 clamp diodes |
+> Use the **labelled 3V3 and GND pins on the Heltec header** (don’t pull from VEXT unless you know exactly what you’re doing).
 
 ---
 
-# Breadboard Coordinates
+## OP07CP (DIP‑8) pinout (top view)
 
-We will use:
+Notch at the top, pins count **counter‑clockwise**:
 
-Row 15 = Bias Node  
-Row 16 = ADC Node  
-Row 14 = Audio In  
+```
+        ┌───────┐
+  1  OFF│•     │OFF 8
+  2  -IN│      │V+  7
+  3  +IN│ OP07 │OUT 6
+  4  V- │      │OFF 5
+        └───────┘
+```
 
-Top rails:
-- Red = 3.3V
-- Blue = GND
+We use:
+- **Pin 7 (V+) → 3V3**
+- **Pin 4 (V−) → GND**
+- **Pin 3 (+IN) → BIAS + coupled audio**
+- **Pin 2 (−IN) → gain network**
+- **Pin 6 (OUT) → ADC via 1k**
 
----
-
-## Step-by-Step Placement
-
-### 1) Power Rails
-
-ESP32 3V3 → Red rail  
-ESP32 GND → Blue rail  
-
----
-
-### 2) Bias Divider
-
-R1 (100k)
-- One leg in red rail
-- Other leg in Row 15 (A)
-
-R2 (100k)
-- One leg in Row 15 (B)
-- Other leg in blue rail
-
-Bias node now exists across Row 15 (A–E).
-
-Optional:
-C2 from Row 15 → Blue rail
+Pins 1/5/8 (offset null) are unused.
 
 ---
 
-### 3) AC Coupling
+## Connection list (net-by-net)
 
-C1 from:
-- Row 14 (Audio Tip input)
-- Row 15 (Bias node)
+### Power + decoupling
+- Heltec **3V3** → OP07 **pin 7 (V+)**
+- Heltec **GND** → OP07 **pin 4 (V−)**
+- **100nF** ceramic between OP07 **pin 7 (V+)** and **GND** (physically close to the chip)
+- **10µF** electrolytic across **3V3 ↔ GND** near the op-amp (breadboards are noisy gremlins)
 
-Audio ground → Blue rail
+### Mid-rail bias (BIAS ≈ 1.65V)
+- **100k** from **3V3 → BIAS**
+- **100k** from **BIAS → GND**
+- **100nF** from **BIAS → GND** (stabilises the bias node)
 
----
+### Audio input coupling
+- Radio audio “hot” (tip) → **10µF** electrolytic → **OP07 pin 3 (+IN)**
+  - Electrolytic orientation: **+ side toward the OP07/bias** (because bias sits above 0V)
+- Radio audio ground (sleeve) → **GND**
 
-### 4) ADC Feed
+Also connect:
+- **OP07 pin 3 (+IN) → BIAS** (same node)
 
-R3 (10k)
-- One leg in Row 15
-- Other leg in Row 16
+### Gain network (non-inverting, gain ≈ 11×)
+- **10k (Rg)** from **OP07 pin 2 (−IN) → BIAS**
+- **100k (Rf)** from **OP07 pin 6 (OUT) → OP07 pin 2 (−IN)**
 
-Row 16 → Jumper → GPIO4 (ADC pin)
-
----
-
-## ASCII Top View (Left Half Only)
-
-Columns A–E
-
-Top Rails:
-+3.3V ===================================
-GND ===================================
-
-Row 14: Audio Tip → C1 → Row 15
-Row 15: Bias Node
-R1 → +3.3V
-R2 → GND
-(C2 → GND optional)
-R3 → Row 16
-Row 16: ADC Node → GPIO4
-
+### Output to ESP32 ADC (protect + smooth)
+- OP07 **pin 6 (OUT)** → **1k** series → Heltec **GPIO4 (ADC)**
+- Optional but recommended: **100nF** from **GPIO4 → GND** (simple low-pass / smoothing)
 
 ---
 
-## Optional Protection Diodes
+## Diagrams
 
-At Row 16 (ADC node):
+### Schematic
+![OP07 schematic](docs/schematic_op07.png)
 
-D1:
-- Cathode to 3.3V rail
-- Anode to ADC node
+### Breadboard layout (1–30, A–E / F–J split)
+![Breadboard layout](docs/breadboard_layout_op07.png)
 
-D2:
-- Anode to GND rail
-- Cathode to ADC node
-
-Prevents over-voltage spikes.
+### Breadboard layout (annotated)
+![Breadboard layout annotated](docs/breadboard_layout_op07_annotated.png)
 
 ---
 
-# Audio Level Guidance
+## Gotchas (because physics hates breadboards)
 
-Target:
-~300–800mV peak-to-peak at ADC.
-
-If decoding is random:
-- Audio too loud (clipping)
-- Add attenuation
-
-If decoding misses:
-- Audio too weak
-- Reduce squelch slightly
+- **OP07CP is not rail-to-rail.** On 3.3V it’s fine for *small* biased audio swings, but don’t expect it to hit 0V or 3.3V cleanly.
+- Keep **all grounds common** (radio audio ground must tie to Heltec ground).
+- If your source is *hot* (headphone output), reduce gain:
+  - swap Rf 100k → 47k (gain ≈ 5.7×), or
+  - add a 10k pot as an input trim.
+- ESP32 ADC is noisy. The **1k + 100nF** at the ADC pin helps a lot.
 
 ---
 
-# Final Checklist
+## Quick checkout with a multimeter
 
-- [ ] 3.3V connected
-- [ ] GND connected
-- [ ] Bias divider installed
-- [ ] AC coupling capacitor installed
-- [ ] Series resistor installed
-- [ ] ADC pin connected
-- [ ] Audio ground connected
-- [ ] No negative voltage reaching ADC
+Before plugging in audio:
+1. Power the Heltec.
+2. Measure **BIAS** to GND: should be **~1.65V**.
+3. Measure OP07 output (pin 6) to GND: should also idle around **~1.65V**.
+4. If BIAS is wrong (0V or 3.3V), stop and check the 100k/100k divider wiring.
 
 ---
 
-This wiring is stable and RF-safe for real-world CW decoding.
+## Where this connects in firmware
+
+The sketch expects the conditioned audio on:
+
+```cpp
+static const int ADC_PIN = 4;
+```
+
+So make sure your ADC wire lands on **GPIO4**.
