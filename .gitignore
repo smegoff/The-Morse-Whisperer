@@ -1,0 +1,21 @@
+# Arduino / build artifacts
+*.bin
+*.elf
+*.hex
+*.map
+
+# IDE files
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Arduino IDE (varies)
+*.arduinoIDE
+*.vscode
+.vscode/
+.idea/
+
+# macOS
+.AppleDouble
+.LSOverride
