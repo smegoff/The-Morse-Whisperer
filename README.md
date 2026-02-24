@@ -1,63 +1,49 @@
-# The Morse Whisperer  
-CW Decoder for Heltec WiFi LoRa 32 (V3)
+# The Morse Whisperer (Heltec WiFi LoRa 32 V3)
 
-The Morse Whisperer is a standalone CW (Morse code) decoder built for the Heltec WiFi LoRa 32 V3.
+A tiny, self-contained CW (Morse) decoder you can plonk on a bench, feed with audio, and read on OLED or a phone.
 
-It features:
-
-- Goertzel-based tone detection
-- Adaptive dot timing with automatic WPM estimation
-- RAW and EXPANDED decoding buffers
-- SNR-based squelch gating
-- Single-button deterministic menu (PRG button)
+**Features**
+- Goertzel tone detector (ADC audio in)
+- Adaptive dot timing (WPM estimate)
+- RAW + EXPANDED text output
+- SNR meter + squelch gate
+- PRG button menu (short/hold/panic)
 - SoftAP Wi-Fi + mobile-friendly Web UI
-- Optional LoRa radio control (RadioLib)
-- Optional Wi-Fi QR join screen
-- OLED auto-sleep power saving
+- Optional LoRa radio ON/OFF (RadioLib if installed)
+- Optional Wi-Fi join QR screen (qrcode.h supported)
+- OLED power saver: sleeps after 5 mins inactivity, wakes on activity
+- Buffered ADC sampler (ring buffer)
+- WDT-safe sampler task (no reboot loop)
+- **Training strategy modes**
+  - Manual “AAAAAAAAAA” lock-in mode
+  - Full auto training mode
 
 ---
 
-## 📚 Documentation
-
-- 👉 **User Manual:** [`docs/USER_MANUAL.md`](docs/USER_MANUAL.md)
-- 👉 **Wiring & Breadboard Layout:** [`docs/WIRING.md`](docs/WIRING.md)
-
----
-
-## 🛠 Hardware
-
-- Heltec WiFi LoRa 32 (V3)
-- Properly biased audio input (see wiring guide)
-- Optional: RadioLib installed for LoRa toggle
+## Quick start (TL;DR)
+1. Flash firmware to Heltec WiFi LoRa 32 (V3).
+2. Device boots a Wi-Fi AP: **The Morse Whisperer**
+3. Connect and browse to: **http://192.168.4.1/**
+4. Feed CW audio into the ADC input front-end.
+5. Use **Calibrate** or enable **Training Mode**.
 
 ---
 
-## ⚠ Important
-
-The ESP32 ADC cannot read negative voltage.
-
-You **must** use:
-- AC coupling
-- Mid-rail bias (~1.65V)
-- Level control
-
-See the wiring guide for exact breadboard layout.
+## Hardware notes
+- This project expects a **biased, AC-coupled audio input** into the ADC (single-supply mid-rail).
+- Target sample rate is 8 kHz and uses 20 ms blocks.
 
 ---
 
-## 🧠 Philosophy
-
-This project is designed to:
-- Be stable
-- Be deterministic
-- Avoid menu weirdness
-- Decode real on-air CW, not just lab-perfect tones
-
-It is intentionally hardware-conscious and RF-realistic.
+## Documentation
+- [TL;DR](docs/00-TLDR.md)
+- [User Manual](docs/01-User-Manual.md)
+- [Install](docs/02-Install.md)
+- [Technical Documentation](docs/03-Technical-Documentation.md)
+- [Troubleshooting](docs/04-Troubleshooting.md)
+- [Competition Mode](docs/05-Competition-Mode.md)
 
 ---
 
 ## License
-
-Open hardware / open firmware friendly.  
-Use it. Improve it. Ship it.
+MIT (or choose your flavour).
