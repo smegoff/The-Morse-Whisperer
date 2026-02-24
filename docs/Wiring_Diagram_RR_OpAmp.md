@@ -1,179 +1,319 @@
-# Wiring Diagram – Rail-to-Rail Op-Amp Front-End (Recommended)
+Perfect. Let’s make it look like it actually belongs in **The Morse Whisperer** repo instead of a late-night lab notebook.
 
-This wiring guide builds a stable 3.3V single-supply audio front-end for **The Morse Whisperer** on the **Heltec WiFi LoRa 32 V3**.
+Below is a cleaned, structured, GitHub-styled version with:
 
-## Why a rail-to-rail op-amp?
-ESP32 ADC wants **0–3.3V**, not a signal centred around 0V.  
-So we:
-1) Create a **mid-rail bias** at ~1.65V (BIAS)  
-2) AC-couple the audio into that bias  
-3) Amplify with a **rail-to-rail** op-amp so it behaves nicely on 3.3V
+* Header banner
+* Table of contents
+* Anchored sections
+* Clean section flow
+* Inline diagram block
+* Makers Night BOM section
+* Troubleshooting
+* “Why this op-amp” section
 
-Recommended op-amps (3.3V friendly, rail-to-rail):
-- **MCP6002** (dual) / MCP6001 (single) – easiest, hobby-friendly
-- **TLV9002** (dual) – excellent modern choice
-- **TLV9062** (dual) – faster, more “pro” but still easy
-- **OPA320 / OPA333** – premium options (often pricier)
+You can drop this in as:
 
-> This doc assumes a **dual op-amp** (MCP6002/TLV9002 style). We use one amp to buffer BIAS and one to amplify.
-
----
-
-## Heltec Connections (what you need)
-From the Heltec V3:
-- **3V3** → power the op-amp + bias divider  
-- **GND** → common ground  
-- **GPIO4 (ADC)** → analogue input to the decoder (`ADC_PIN = 4` in your sketch)
-
-> Use the **3V3 and GND** available on the Heltec headers.  
-> GPIO4 is your ADC input in code.
+```
+docs/Wiring_Diagram_RR_OpAmp.md
+```
 
 ---
 
-## Circuit Overview (nets)
-- **AC_IN**: Audio input (from jack tip)
-- **GND**: Audio jack sleeve, Heltec GND
-- **BIAS**: 1.65V reference (mid-rail)
-- **AMP_OUT**: op-amp amplified output (centred at BIAS)
-- **ADC_IN**: output after series resistor + optional RC filter (goes to GPIO4)
+# 🎧 The Morse Whisperer
+
+## Analog Front-End – Rail-to-Rail Op-Amp (Recommended)
 
 ---
 
-## Schematic (text version)
+## 📖 Table of Contents
 
-### 1) Bias generator (mid-rail) + buffer
-
-3V3 --- R1 100k ---+--- R2 100k --- GND
-|
-BIAS
-|
-C1 100nF
-|
-GND
-
-BIAS --> U1B (op-amp B) unity buffer:
-U1B +IN = BIAS
-U1B -IN = U1B OUT
-U1B OUT = BIAS_BUF (quiet/stiff 1.65V reference)
-
-
-### 2) AC coupling into biased domain (input)
-
-Audio Jack TIP --- C2 10uF --- AC_NODE --- R3 100k --- BIAS_BUF
-Audio Jack SLEEVE ------------------------------ GND
-
-
-- C2 blocks DC from the source.
-- R3 biases the post-cap node to mid-rail so the signal “floats” around 1.65V.
-
-### 3) Non-inverting amplifier (gain referenced to BIAS_BUF)
-
-U1A (op-amp A) non-inverting:
-+IN = AC_NODE
--IN = FB_NODE
-OUT = AMP_OUT
-
-Feedback network (sets gain around BIAS_BUF):
-AMP_OUT --- R5 (Rf) ---+
-|
-FB_NODE --- R4 (Rg) --- BIAS_BUF
-
-
-Gain ≈ 1 + (Rf/Rg)
-
-Recommended starting gains:
-- **Gain ~6×**: R4=10k, R5=47k  (safer if your source is hot)
-- **Gain ~11×**: R4=10k, R5=100k (more boost if source is weak)
-
-### 4) Output to ESP32 ADC with protection / filtering
-
-AMP_OUT --- R6 1k --- ADC_IN ----> Heltec GPIO4 (ADC)
-
-Optional smoothing (helps ADC stability):
-ADC_IN --- C3 100nF --- GND
-
-
-Optional clamp protection (if you’re nervous about “spicy” input levels):
-
-ADC_IN ---|<|--- 3V3 (D1 Schottky, e.g. BAT54)
-ADC_IN ---|>|--- GND (D2 Schottky, e.g. BAT54)
-
+* [Overview](#overview)
+* [Why Rail-to-Rail?](#why-rail-to-rail)
+* [Signal Flow Architecture](#signal-flow-architecture)
+* [Full Wiring Diagram](#full-wiring-diagram)
+* [Heltec V3 Connections](#heltec-v3-connections)
+* [Breadboard Placement (Matches Current Build)](#breadboard-placement-matches-current-build)
+* [Pin-by-Pin Wiring Checklist](#pin-by-pin-wiring-checklist)
+* [Parts List (Makers Night Edition)](#parts-list-makers-night-edition)
+* [Voltage Sanity Checks](#voltage-sanity-checks)
+* [Troubleshooting](#troubleshooting)
 
 ---
 
-## Breadboard Wiring Notes (1–30 A–E / F–J split)
-- Put the op-amp DIP across the centre gap so each pin sits in a separate row.
-- Run a **3V3 rail** and a **GND rail** down the breadboard.
-- Keep **BIAS node wiring short** and keep **C1 and the op-amp decoupler** physically close to the op-amp pins.
-- Star-ground your audio jack sleeve to the same ground rail as the Heltec.
+# Overview
+
+This front-end conditions CW audio for the ESP32-S3 ADC on the **Heltec WiFi LoRa 32 V3**.
+
+It performs:
+
+1. AC coupling of input audio
+2. Mid-rail bias generation (~1.65V)
+3. Non-inverting gain stage
+4. ADC protection + optional filtering
+
+All running from **3.3V single supply**.
 
 ---
 
-## Power + Decoupling (don’t skip this)
-Put these right next to the op-amp power pins:
-- **C4 100nF** from op-amp VDD to GND (as close as possible)
-- **C5 10uF** bulk cap across 3V3 and GND nearby
+# Why Rail-to-Rail?
+
+The ESP32 ADC expects a signal between **0V and 3.3V**.
+
+Traditional op-amps (like OP07) struggle on 3.3V single supply.
+Rail-to-rail CMOS op-amps behave properly at low voltage.
+
+### Recommended Devices
+
+| Part        | Type        | Notes                         |
+| ----------- | ----------- | ----------------------------- |
+| **MCP6002** | Dual, DIP-8 | Easiest hobby choice          |
+| MCP6001     | Single      | If you don’t need bias buffer |
+| TLV9002     | Dual        | Very clean modern option      |
+| TLV9062     | Dual        | Faster, higher bandwidth      |
+| OPA320      | Single      | Premium                       |
+
+**Default reference build: MCP6002 (DIP-8)**
 
 ---
 
-## Parts List (BOM)
+# Signal Flow Architecture
 
-### Core
-- 1 × Heltec WiFi LoRa 32 V3 (ESP32-S3)
-- 1 × **MCP6002** (dual, DIP-8 preferred)  
-  - Alternative: TLV9002 / TLV9062 (dual)
-
-### Input + Bias
-- 1 × C2 10uF electrolytic (input coupling)
-- 2 × R1,R2 100k (bias divider)
-- 1 × C1 100nF ceramic (bias filter)
-- 1 × R3 100k (bias feed for AC_NODE)
-
-### Amplifier gain network
-Choose ONE gain set:
-
-**Option A (recommended start): Gain ~6×**
-- 1 × R4 10k (Rg)
-- 1 × R5 47k (Rf)
-
-**Option B: Gain ~11×**
-- 1 × R4 10k (Rg)
-- 1 × R5 100k (Rf)
-
-### ADC output conditioning
-- 1 × R6 1k (series into ADC)
-- Optional: 1 × C3 100nF (ADC RC smoothing)
-
-### Protection (optional but nice)
-- 2 × BAT54 (Schottky clamp diodes) or similar
-
-### Decoupling
-- 1 × C4 100nF (op-amp local decoupler)
-- 1 × C5 10uF electrolytic (bulk near op-amp)
-
-### Build bits
-- 1 × DIP-8 socket (recommended)
-- Breadboard + jumper wires
-- Optional: 3.5mm jack breakout
+```
+AUDIO_IN
+   │
+   ▼
+AC Coupling Capacitor (10uF)
+   │
+   ▼
+Biased Node (~1.65V)
+   │
+   ▼
+Non-Inverting Amplifier (~6–11×)
+   │
+   ▼
+1k Series Protection
+   │
+   ▼
+ESP32 ADC (GPIO4)
+```
 
 ---
 
-## Quick sanity checks (before you power up)
-1) BIAS divider midpoint should read ~1.65V (half of 3.3V)
-2) BIAS buffer output should also read ~1.65V
-3) ADC_IN should sit around ~1.65V when no audio is present
-4) With audio applied, ADC_IN should swing around BIAS, not below 0V or above 3.3V
+# Full Wiring Diagram
+
+```
+BIAS GENERATOR
++3V3 --- R1 100k ---+--- R2 100k --- GND
+                    |
+                   BIAS
+                    |
+                  C_BIAS 100nF
+                    |
+                   GND
+
+
+INPUT STAGE
+AUDIO TIP --- C_IN 10uF --- AC_NODE ---+
+                                        |
+                                       IN+ (OpAmp A)
+                                        |
+                                       BIAS
+
+
+GAIN STAGE (Non-Inverting)
+IN- ---- Rg 10k ---- BIAS
+OUT ---- Rf 100k ---- IN-
+
+Gain ≈ 1 + (Rf/Rg) ≈ 11×
+
+
+ADC OUTPUT
+OUT --- R_SER 1k --- ADC_IN ---> GPIO4
+ADC_IN --- C_ADC 100nF (optional) --- GND
+```
+
+Optional clamp protection:
+
+```
+ADC_IN ---|<|--- +3V3
+ADC_IN ---|>|--- GND
+```
+
+(BAT54 Schottky recommended)
 
 ---
 
-## Code reminder
-Your sketch already uses:
-- `ADC_PIN = 4;`
-So wire **ADC_IN → GPIO4**.
+# Heltec V3 Connections
+
+Only three wires required:
+
+| Heltec Pin | Connect To  |
+| ---------- | ----------- |
+| 3V3        | +3V3 rail   |
+| GND        | Ground rail |
+| GPIO4      | ADC_IN      |
+
+Your firmware uses:
+
+```cpp
+const int ADC_PIN = 4;
+```
+
+So GPIO4 must receive ADC_IN.
 
 ---
 
-## Troubleshooting
-- If decoding is “always on”: reduce gain (use 47k feedback, or even 22k).
-- If it’s deaf: increase gain (100k feedback) or reduce squelch threshold in UI.
-- If it’s noisy: add C3 (100nF) at ADC_IN and keep wires short.
+# Breadboard Placement (Matches Current Build)
+
+Based on your current board photo orientation:
+
+The DIP-8 is sitting in rows F–J around columns 27–30.
+
+Pin mapping (dot lower-left corner):
+
+| Pin | Location |
+| --- | -------- |
+| 1   | F27      |
+| 2   | F28      |
+| 3   | F29      |
+| 4   | F30      |
+| 5   | J30      |
+| 6   | J29      |
+| 7   | J28      |
+| 8   | J27      |
+
+For MCP6002:
+
+| Pin | Function |
+| --- | -------- |
+| 1   | OUT_A    |
+| 2   | IN-_A    |
+| 3   | IN+_A    |
+| 4   | V-       |
+| 8   | V+       |
+
+---
+
+# Pin-by-Pin Wiring Checklist
+
+## Power
+
+* Pin 8 → +3V3
+* Pin 4 → GND
+* 100nF cap between Pin 8 and Pin 4 (close to chip)
+* 10uF bulk cap between +3V3 and GND nearby
+
+## Bias Network
+
+* 100k from +3V3 → BIAS
+* 100k from BIAS → GND
+* 100nF from BIAS → GND
+
+## Input
+
+* Pin 3 (IN+) → BIAS
+* 10uF cap from AUDIO_IN tip → Pin 3
+
+  * Electrolytic + toward Pin 3
+* Audio sleeve → GND
+
+## Gain
+
+* 10k from Pin 2 (IN-) → BIAS
+* 100k from Pin 1 (OUT) → Pin 2
+
+## ADC Output
+
+* 1k from Pin 1 → ADC_IN
+* ADC_IN → GPIO4
+* Optional 100nF from ADC_IN → GND
+
+## Unused Op-Amp (Amp B)
+
+Do NOT leave floating.
+
+Recommended:
+
+* IN+_B → BIAS
+* OUT_B → IN-_B
+
+Unity follower at mid-rail keeps it quiet.
+
+---
+
+# Parts List (Makers Night Edition)
+
+## Core
+
+* MCP6002 (DIP-8)
+* DIP socket (optional)
+
+## Resistors
+
+* 100k ×3
+* 10k ×1
+* 100k ×1 (feedback)
+* 1k ×1 (ADC series)
+
+## Capacitors
+
+* 10uF electrolytic ×2
+* 100nF ceramic ×3
+
+## Optional
+
+* BAT54 ×2
+* 10k potentiometer (input trim)
+* SOIC→DIP adapter (if needed)
+
+---
+
+# Voltage Sanity Checks
+
+Before audio:
+
+| Node   | Expected Voltage |
+| ------ | ---------------- |
+| BIAS   | ~1.65V           |
+| OUT    | ~1.65V           |
+| ADC_IN | ~1.65V           |
+
+With audio:
+Signal should swing around 1.65V without hitting 0V or 3.3V.
+
+---
+
+# Troubleshooting
+
+| Symptom         | Cause                               |
+| --------------- | ----------------------------------- |
+| Always decoding | Too much gain                       |
+| Deaf            | Not enough gain                     |
+| Noisy           | Poor grounding / missing decoupling |
+| Distorted       | Hitting rails (reduce gain)         |
+| ADC unstable    | Add 100nF at ADC_IN                 |
+
+---
+
+# Final Notes
+
+This is the preferred 3.3V-safe, rail-to-rail front-end for The Morse Whisperer.
+
+It behaves.
+It’s stable.
+It won’t fight the ESP32 ADC.
+
+Unlike certain AI schematic generators.
+
+```
+
+---
+
+If you’d like, I can next generate:
+
+- A matching **README badge section**
+- A clean **SVG diagram block**
+- Or a printable A4 PDF version for Makers Night
+
+Your call.
+```
