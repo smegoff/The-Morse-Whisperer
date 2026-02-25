@@ -1,319 +1,272 @@
-Perfect. Let’s make it look like it actually belongs in **The Morse Whisperer** repo instead of a late-night lab notebook.
-
-Below is a cleaned, structured, GitHub-styled version with:
-
-* Header banner
-* Table of contents
-* Anchored sections
-* Clean section flow
-* Inline diagram block
-* Makers Night BOM section
-* Troubleshooting
-* “Why this op-amp” section
-
-You can drop this in as:
-
-```
-docs/Wiring_Diagram_RR_OpAmp.md
-```
+# The Morse Whisperer
+## Analog Front-End – LM358 (Jaycar-Friendly Build)
 
 ---
 
-# 🎧 The Morse Whisperer
-
-## Analog Front-End – Rail-to-Rail Op-Amp (Recommended)
-
----
-
-## 📖 Table of Contents
-
+## Table of Contents
 * [Overview](#overview)
-* [Why Rail-to-Rail?](#why-rail-to-rail)
+* [Why LM358 (and the one big gotcha)](#why-lm358-and-the-one-big-gotcha)
 * [Signal Flow Architecture](#signal-flow-architecture)
 * [Full Wiring Diagram](#full-wiring-diagram)
 * [Heltec V3 Connections](#heltec-v3-connections)
-* [Breadboard Placement (Matches Current Build)](#breadboard-placement-matches-current-build)
+* [LM358 Pinout](#lm358-pinout)
 * [Pin-by-Pin Wiring Checklist](#pin-by-pin-wiring-checklist)
-* [Parts List (Makers Night Edition)](#parts-list-makers-night-edition)
+* [Parts List](#parts-list)
 * [Voltage Sanity Checks](#voltage-sanity-checks)
 * [Troubleshooting](#troubleshooting)
 
 ---
 
-# Overview
+## Overview
 
 This front-end conditions CW audio for the ESP32-S3 ADC on the **Heltec WiFi LoRa 32 V3**.
 
 It performs:
 
-1. AC coupling of input audio
-2. Mid-rail bias generation (~1.65V)
-3. Non-inverting gain stage
-4. ADC protection + optional filtering
+1. **AC coupling** of input audio
+2. **Mid-rail bias** generation (≈ **1.65 V** referenced to 3V3)
+3. **Non-inverting gain stage**
+4. **ADC protection** (series resistor + clamp diodes recommended)
 
-All running from **3.3V single supply**.
-
----
-
-# Why Rail-to-Rail?
-
-The ESP32 ADC expects a signal between **0V and 3.3V**.
-
-Traditional op-amps (like OP07) struggle on 3.3V single supply.
-Rail-to-rail CMOS op-amps behave properly at low voltage.
-
-### Recommended Devices
-
-| Part        | Type        | Notes                         |
-| ----------- | ----------- | ----------------------------- |
-| **MCP6002** | Dual, DIP-8 | Easiest hobby choice          |
-| MCP6001     | Single      | If you don’t need bias buffer |
-| TLV9002     | Dual        | Very clean modern option      |
-| TLV9062     | Dual        | Faster, higher bandwidth      |
-| OPA320      | Single      | Premium                       |
-
-**Default reference build: MCP6002 (DIP-8)**
+All designed to run “makers night style” on a breadboard with parts you can actually buy locally.
 
 ---
 
-# Signal Flow Architecture
+## Why LM358 (and the one big gotcha)
 
-```
+LM358 is common and cheap. It works well for single-supply audio-ish stuff.
+
+**Gotcha:** LM358 is **not rail-to-rail output** on 3.3 V. If you power it from 3.3 V, the output can run out of headroom near the top rail and you’ll clip.
+
+**Solution used here (recommended):**
+- Power the **LM358 from 5 V (VBUS/5V)** so it has headroom.
+- Keep the **signal bias at ~1.65 V from 3V3**, because the ADC is 0–3.3 V.
+- Add a **series resistor + clamp diodes to 3V3/GND** so the ADC never gets bullied above 3.3 V.
+
+This gives you a stable, forgiving front-end without needing unicorn parts.
+
+---
+
+## Signal Flow Architecture
+
 AUDIO_IN
-   │
-   ▼
+│
+▼
 AC Coupling Capacitor (10uF)
-   │
-   ▼
-Biased Node (~1.65V)
-   │
-   ▼
-Non-Inverting Amplifier (~6–11×)
-   │
-   ▼
-1k Series Protection
-   │
-   ▼
+│
+▼
+Biased Node (~1.65V from 3V3 divider)
+│
+▼
+LM358 Non-Inverting Amplifier (~6–11× typical)
+│
+▼
+1k Series Protection + Clamp
+│
+▼
 ESP32 ADC (GPIO4)
-```
+
 
 ---
 
-# Full Wiring Diagram
+## Full Wiring Diagram
 
-```
-BIAS GENERATOR
-+3V3 --- R1 100k ---+--- R2 100k --- GND
-                    |
-                   BIAS
-                    |
-                  C_BIAS 100nF
-                    |
-                   GND
-
-
-INPUT STAGE
-AUDIO TIP --- C_IN 10uF --- AC_NODE ---+
-                                        |
-                                       IN+ (OpAmp A)
-                                        |
-                                       BIAS
+### 1) Bias generator (from 3V3)
+3V3 --- R1 100k ---+--- R2 100k --- GND
+|
+BIAS (~1.65V)
+|
+C_BIAS 100nF
+|
+GND
 
 
-GAIN STAGE (Non-Inverting)
-IN- ---- Rg 10k ---- BIAS
-OUT ---- Rf 100k ---- IN-
+Optional but recommended: add a **10uF** from BIAS to GND as well (makes it quieter).
+
+---
+
+### 2) Input coupling into biased domain
+AUDIO TIP --- C_IN 10uF --- AC_NODE -----> LM358 IN+ (Pin 3)
+|
+BIAS (tie AC_NODE to BIAS)
+AUDIO SLEEVE ----------------- GND
+
+
+**Electrolytic orientation:** **+** towards the LM358 / biased node.
+
+---
+
+### 3) Gain stage (Non-inverting)
+LM358 A:
+IN+ (Pin 3) = AC_NODE (audio + bias)
+IN- (Pin 2) = feedback node
+OUT (Pin 1) = amplified output
+
+Pin 2 (IN-) --- Rg 10k --- BIAS
+Pin 1 (OUT) --- Rf 100k -- Pin 2 (IN-)
 
 Gain ≈ 1 + (Rf/Rg) ≈ 11×
 
 
-ADC OUTPUT
-OUT --- R_SER 1k --- ADC_IN ---> GPIO4
-ADC_IN --- C_ADC 100nF (optional) --- GND
-```
-
-Optional clamp protection:
-
-```
-ADC_IN ---|<|--- +3V3
-ADC_IN ---|>|--- GND
-```
-
-(BAT54 Schottky recommended)
+If your audio source is “hot” and you clip, drop gain by changing values, eg:
+- Rf = 47k, Rg = 10k  → ~5.7×
+- Rf = 33k, Rg = 10k  → ~4.3×
 
 ---
 
-# Heltec V3 Connections
+### 4) ADC protection + optional filtering
+LM358 OUT (Pin 1) --- R_SER 1k --- ADC_IN ---> Heltec GPIO4
 
-Only three wires required:
+Optional low-pass:
+ADC_IN --- C_ADC 100nF --- GND
 
-| Heltec Pin | Connect To  |
-| ---------- | ----------- |
-| 3V3        | +3V3 rail   |
-| GND        | Ground rail |
-| GPIO4      | ADC_IN      |
+Recommended clamp (keeps ADC safe):
+ADC_IN ---|<|--- 3V3
+ADC_IN ---|>|--- GND
+(BAT54 / BAT54S / 1N5819 / even 1N4148 in a pinch)
+
+
+---
+
+## Heltec V3 Connections
 
 Your firmware uses:
 
 ```cpp
 const int ADC_PIN = 4;
-```
 
 So GPIO4 must receive ADC_IN.
 
----
+Power:
 
-# Breadboard Placement (Matches Current Build)
+LM358 V+ → 5V / VBUS (from Heltec 5V pin or USB 5V rail)
 
-Based on your current board photo orientation:
+LM358 GND → GND
 
-The DIP-8 is sitting in rows F–J around columns 27–30.
+Bias divider uses 3V3:
 
-Pin mapping (dot lower-left corner):
+BIAS network top → 3V3
 
-| Pin | Location |
-| --- | -------- |
-| 1   | F27      |
-| 2   | F28      |
-| 3   | F29      |
-| 4   | F30      |
-| 5   | J30      |
-| 6   | J29      |
-| 7   | J28      |
-| 8   | J27      |
+BIAS network bottom → GND
 
-For MCP6002:
+Signal:
 
-| Pin | Function |
-| --- | -------- |
-| 1   | OUT_A    |
-| 2   | IN-_A    |
-| 3   | IN+_A    |
-| 4   | V-       |
-| 8   | V+       |
+ADC_IN → GPIO4
 
----
+If your Heltec breakout doesn’t expose 5V nicely: you can still run LM358 from 3V3, but expect earlier clipping. The 5V method is the “stop being sad” option.
 
-# Pin-by-Pin Wiring Checklist
+LM358 Pinout
 
-## Power
+DIP-8, notch at the top:
 
-* Pin 8 → +3V3
-* Pin 4 → GND
-* 100nF cap between Pin 8 and Pin 4 (close to chip)
-* 10uF bulk cap between +3V3 and GND nearby
+        ________
+  OUTA |1     8| V+
+  INA- |2     7| OUTB
+  INA+ |3     6| INB-
+   GND |4     5| INB+
+        --------
 
-## Bias Network
+Pin-by-Pin Wiring Checklist
+Power
 
-* 100k from +3V3 → BIAS
-* 100k from BIAS → GND
-* 100nF from BIAS → GND
+Pin 8 (V+) → 5V / VBUS
 
-## Input
+Pin 4 (GND) → GND
 
-* Pin 3 (IN+) → BIAS
-* 10uF cap from AUDIO_IN tip → Pin 3
+Decoupling: 100nF from Pin 8 to Pin 4 (as close as possible)
 
-  * Electrolytic + toward Pin 3
-* Audio sleeve → GND
+Bias
 
-## Gain
+R1 100k: 3V3 → BIAS
 
-* 10k from Pin 2 (IN-) → BIAS
-* 100k from Pin 1 (OUT) → Pin 2
+R2 100k: BIAS → GND
 
-## ADC Output
+C_BIAS 100nF: BIAS → GND
 
-* 1k from Pin 1 → ADC_IN
-* ADC_IN → GPIO4
-* Optional 100nF from ADC_IN → GND
+(Optional) 10uF: BIAS → GND
 
-## Unused Op-Amp (Amp B)
+Input
 
-Do NOT leave floating.
+Audio tip → 10uF cap → Pin 3 (IN+)
 
-Recommended:
+Audio sleeve → GND
 
-* IN+_B → BIAS
-* OUT_B → IN-_B
+Tie Pin 3 (IN+) to BIAS (same node as the bias midpoint)
 
-Unity follower at mid-rail keeps it quiet.
+Gain
 
----
+Pin 2 (IN-) → Rg 10k → BIAS
 
-# Parts List (Makers Night Edition)
+Pin 1 (OUT) → Rf 100k → Pin 2 (IN-)
 
-## Core
+Output / ADC
 
-* MCP6002 (DIP-8)
-* DIP socket (optional)
+Pin 1 (OUT) → 1k series → ADC_IN
 
-## Resistors
+ADC_IN → GPIO4
 
-* 100k ×3
-* 10k ×1
-* 100k ×1 (feedback)
-* 1k ×1 (ADC series)
+Optional: ADC_IN → 100nF → GND
 
-## Capacitors
+Recommended: clamp diodes from ADC_IN to 3V3 and GND
 
-* 10uF electrolytic ×2
-* 100nF ceramic ×3
+Unused op-amp (B channel) — do NOT leave floating
 
-## Optional
+Do a quiet unity follower at mid-rail:
 
-* BAT54 ×2
-* 10k potentiometer (input trim)
-* SOIC→DIP adapter (if needed)
+Pin 5 (INB+) → BIAS
 
----
+Pin 6 (INB-) → Pin 7 (OUTB)
 
-# Voltage Sanity Checks
+Parts List
+IC
 
-Before audio:
+LM358 (DIP-8)
 
-| Node   | Expected Voltage |
-| ------ | ---------------- |
-| BIAS   | ~1.65V           |
-| OUT    | ~1.65V           |
-| ADC_IN | ~1.65V           |
+Resistors
 
-With audio:
-Signal should swing around 1.65V without hitting 0V or 3.3V.
+100k ×2 (bias divider)
 
----
+10k ×1 (Rg)
 
-# Troubleshooting
+100k ×1 (Rf)
 
-| Symptom         | Cause                               |
-| --------------- | ----------------------------------- |
-| Always decoding | Too much gain                       |
-| Deaf            | Not enough gain                     |
-| Noisy           | Poor grounding / missing decoupling |
-| Distorted       | Hitting rails (reduce gain)         |
-| ADC unstable    | Add 100nF at ADC_IN                 |
+1k ×1 (ADC series)
 
----
+Capacitors
 
-# Final Notes
+10uF electrolytic ×1 (input coupling)
 
-This is the preferred 3.3V-safe, rail-to-rail front-end for The Morse Whisperer.
+100nF ×2 (bias filter + op-amp decoupling)
 
-It behaves.
-It’s stable.
-It won’t fight the ESP32 ADC.
+Optional: 100nF ×1 (ADC low-pass)
 
-Unlike certain AI schematic generators.
+Optional: 10uF ×1 (extra bias smoothing)
 
-```
+Optional protection
 
----
+BAT54 / BAT54S / 1N5819 / 1N4148 ×2 (ADC clamp)
 
-If you’d like, I can next generate:
+Voltage Sanity Checks
 
-- A matching **README badge section**
-- A clean **SVG diagram block**
-- Or a printable A4 PDF version for Makers Night
+With power on and no audio:
 
-Your call.
-```
+Node	Expected
+3V3	~3.3 V
+5V/VBUS	~5.0 V (if USB powered)
+BIAS	~1.65 V
+LM358 OUT (Pin 1)	~1.65 V
+ADC_IN	~1.65 V
+
+With audio present:
+
+Signal should swing around ~1.65 V
+
+ADC_IN should never exceed 3.3 V (clamps help guarantee this)
+
+Troubleshooting
+Symptom	Likely Cause	Fix
+Reboots / weird ADC behaviour	ADC seeing >3.3 V	Add clamp diodes + keep 1k series
+Always decoding / “stuck tone”	Too much gain / noise	Lower gain (Rf down) + improve grounding
+Deaf / no decode	Too little gain / wrong ADC pin	Confirm GPIO4 + raise gain slightly
+Distorted / harsh decode	Clipping	Power LM358 from 5V and/or lower gain
+Noisy, unstable thresholds	Bias not clean	Add 10uF on BIAS, keep 100nF close
