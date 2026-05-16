@@ -1,0 +1,15 @@
+[Unit]
+Description=The Morse Whisperer TFT Button Sidecar
+After=morse-whisperer.service
+Wants=morse-whisperer.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/morse-whisperer-pi
+ExecStart=/opt/morse-whisperer-pi/tools/button_sidecar.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

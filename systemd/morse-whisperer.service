@@ -1,0 +1,20 @@
+[Unit]
+Description=The Morse Whisperer CW Decoder Appliance
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=morsewhisperer
+Group=morsewhisperer
+SupplementaryGroups=audio video
+WorkingDirectory=/opt/morse-whisperer-pi
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=-/usr/bin/timeout 7s /opt/morse-whisperer-pi/venv/bin/python /opt/morse-whisperer-pi/tools/animated_boot_splash.py
+ExecStart=/opt/morse-whisperer-pi/venv/bin/python -m morse_whisperer
+Restart=on-failure
+RestartSec=4
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

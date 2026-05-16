@@ -1,49 +1,70 @@
-# The Morse Whisperer (Heltec WiFi LoRa 32 V3)
+# The Morse Whisperer
 
-A tiny, self-contained CW (Morse) decoder you can plonk on a bench, feed with audio, and read on OLED or a phone.
+A Raspberry Pi 4 CW decoder appliance with USB audio, a 320x240 SPI TFT, a web UI, Wi-Fi setup tools, and a CW trainer.
 
-**Features**
-- Goertzel tone detector (ADC audio in)
-- Adaptive dot timing (WPM estimate)
-- RAW + EXPANDED text output
-- SNR meter + squelch gate
-- PRG button menu (short/hold/panic)
-- SoftAP Wi-Fi + mobile-friendly Web UI
-- Optional LoRa radio ON/OFF (RadioLib if installed)
-- Optional Wi-Fi join QR screen (qrcode.h supported)
-- OLED power saver: sleeps after 5 mins inactivity, wakes on activity
-- Buffered ADC sampler (ring buffer)
-- WDT-safe sampler task (no reboot loop)
-- **Training strategy modes**
-  - Manual “AAAAAAAAAA” lock-in mode
-  - Full auto training mode
+This repository is now focused on the Raspberry Pi appliance build. Older ESP32/Heltec notes have been replaced by the Pi codebase and installer.
 
----
+## Quick install
 
-## Quick start (TL;DR)
-1. Flash firmware to Heltec WiFi LoRa 32 (V3).
-2. Device boots a Wi-Fi AP: **The Morse Whisperer**
-3. Connect and browse to: **http://192.168.4.1/**
-4. Feed CW audio into the ADC input front-end.
-5. Use **Calibrate** or enable **Training Mode**.
+On Raspberry Pi OS Lite:
 
----
+```bash
+curl -fsSL https://raw.githubusercontent.com/smegoff/The-Morse-Whisperer/main/install.sh | sudo bash
+```
 
-## Hardware notes
-- This project expects a **biased, AC-coupled audio input** into the ADC (single-supply mid-rail).
-- Target sample rate is 8 kHz and uses 20 ms blocks.
+Reboot when prompted, then open:
 
----
+```text
+http://<pi-ip>:8080
+```
+
+## What you get
+
+- Live CW decode from USB audio input
+- Goertzel tone detector with tone ranking
+- Stable COPY and RAW views
+- 320x240 TFT display output using `/dev/fb1`
+- Web UI with settings, trainer, and network setup
+- CW generator / trainer with USB audio output
+- Animated boot splash and idle TFT splash
+- NetworkManager Wi-Fi connect support from the web UI
+- systemd services for boot startup
+
+## Known-good hardware
+
+- Raspberry Pi 4
+- Raspberry Pi OS Lite / Debian 64-bit
+- GoodTFT / Jaycar XC9022-style 2.8 inch SPI TFT
+- USB sound card with capture and playback
+
+Known-good audio device:
+
+```text
+audio_device:        plughw:2,0
+audio_output_device: plughw:2,0
+```
+
+Known-good TFT overlay:
+
+```text
+dtparam=spi=on
+dtoverlay=pitft28-resistive,rotate=90,speed=32000000,fps=20
+```
 
 ## Documentation
-- [TL;DR](docs/00-TLDR.md)
-- [User Manual](docs/01-User-Manual.md)
-- [Install](docs/02-Install.md)
-- [Technical Documentation](docs/03-Technical-Documentation.md)
-- [Troubleshooting](docs/04-Troubleshooting.md)
-- [Competition Mode](docs/05-Competition-Mode.md)
 
----
+- [Quick Start](docs/quick-start.md)
+- [Hardware Guide](docs/hardware.md)
+- [Installer Guide](docs/installer.md)
+- [TFT Display](docs/tft-display.md)
+- [Audio Setup](docs/audio.md)
+- [Web UI](docs/web-ui.md)
+- [Network and Wi-Fi](docs/network.md)
+- [CW Trainer](docs/trainer.md)
+- [Backup and Recovery](docs/backup-recovery.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Developer Notes](docs/developer-notes.md)
 
 ## License
-MIT (or choose your flavour).
+
+MIT. See [LICENSE](LICENSE).

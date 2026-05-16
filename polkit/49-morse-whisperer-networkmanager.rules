@@ -1,0 +1,17 @@
+// Allow The Morse Whisperer web service user to manage NetworkManager Wi-Fi.
+// Scope is limited to the morsewhisperer system user.
+polkit.addRule(function(action, subject) {
+    if (
+        subject.user == "morsewhisperer" &&
+        (
+            action.id == "org.freedesktop.NetworkManager.network-control" ||
+            action.id == "org.freedesktop.NetworkManager.enable-disable-wifi" ||
+            action.id == "org.freedesktop.NetworkManager.wifi.scan" ||
+            action.id == "org.freedesktop.NetworkManager.settings.modify.system" ||
+            action.id == "org.freedesktop.NetworkManager.settings.modify.own" ||
+            action.id == "org.freedesktop.NetworkManager.settings.modify.hostname"
+        )
+    ) {
+        return polkit.Result.YES;
+    }
+});
