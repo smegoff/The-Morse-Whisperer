@@ -7,10 +7,9 @@ Wants=network-online.target
 Type=simple
 User=morsewhisperer
 Group=morsewhisperer
-SupplementaryGroups=audio video
 WorkingDirectory=/opt/morse-whisperer-pi
 Environment=PYTHONUNBUFFERED=1
-ExecStartPre=-/usr/bin/timeout 7s /opt/morse-whisperer-pi/venv/bin/python /opt/morse-whisperer-pi/tools/animated_boot_splash.py
+ExecStartPre=/usr/bin/timeout 6s /opt/morse-whisperer-pi/venv/bin/python /opt/morse-whisperer-pi/tools/safe_splash_v2.py
 ExecStart=/opt/morse-whisperer-pi/venv/bin/python -m morse_whisperer
 Restart=on-failure
 RestartSec=4
