@@ -1,5 +1,6 @@
 // Allow The Morse Whisperer web service user to manage NetworkManager Wi-Fi.
-// Scope is limited to the morsewhisperer system user.
+// This is needed so the web UI can join Wi-Fi without sudo.
+// Scope is limited to the service user only.
 polkit.addRule(function(action, subject) {
     if (
         subject.user == "morsewhisperer" &&
