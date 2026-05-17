@@ -3,160 +3,3129 @@ from __future__ import annotations
 import json
 import math
 import os
+import random
+import struct
 import subprocess
 import tempfile
 import time
 import wave
+
+import numpy as np
 from pathlib import Path
 from typing import Dict
 
-import numpy as np
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
-from .config import DEFAULT_CONFIG_PATH, save_config
+from .config import DEFAULTS, save_config
+from .dsp import analyse_samples
 
-APP_DIR = Path('/opt/morse-whisperer-pi')
-
-HTML = r'''<!doctype html>
+HTML = r"""
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="cache-control" content="no-store">
 <title>The Morse Whisperer</title>
 <style>
-:root{--bg:#02070b;--card:#071824;--line:rgba(66,248,255,.26);--cyan:#42f8ff;--teal:#5eead4;--orange:#ffb02e;--text:#eefcff;--muted:#93aaba;--bad:#ff5f72;--green:#68ff9f;--radius:18px}*{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--text);background:radial-gradient(circle at 68% 0%,rgba(66,248,255,.13),transparent 24rem),radial-gradient(circle at 18% 20%,rgba(255,176,46,.08),transparent 24rem),linear-gradient(135deg,#02070b,#06121b 42%,#070c18);font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif}#wm{position:fixed;inset:0;z-index:0;pointer-events:none;background-image:radial-gradient(circle at 50% 54%,rgba(66,248,255,.18),transparent 38%),radial-gradient(circle at 52% 64%,rgba(255,176,46,.13),transparent 42%),url('/assets/horse_boot_splash.png');background-position:center 52%,center 58%,center 48%;background-repeat:no-repeat;background-size:min(106vw,1180px) min(79vw,885px),min(96vw,1040px) min(72vw,780px),min(88vw,940px) auto;opacity:.42;filter:saturate(1.45) contrast(1.14) brightness(1.12);mix-blend-mode:screen}#wm:after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,rgba(2,7,11,.04),rgba(2,7,11,.36) 58%,rgba(2,7,11,.78) 100%),linear-gradient(90deg,rgba(2,7,11,.72),rgba(2,7,11,.10) 46%,rgba(2,7,11,.72))}.app{position:relative;z-index:2;width:min(1600px,100%);margin:0 auto;padding:24px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center}.brand{display:flex;gap:14px;align-items:center}.logo{width:48px;height:48px;border-radius:16px;display:grid;place-items:center;background:linear-gradient(135deg,var(--teal),#35b7ff);color:#031017;font-weight:900;box-shadow:0 0 24px rgba(66,248,255,.35)}h1{font-size:clamp(30px,3vw,46px);margin:0;line-height:1;text-shadow:0 0 20px rgba(66,248,255,.38)}.sub,.hint,.muted,small{color:var(--muted)}.badges{display:flex;gap:8px;flex-wrap:wrap}.badge,.pill{background:rgba(2,10,16,.78);border:1px solid rgba(66,248,255,.24);border-radius:999px;padding:7px 11px;font-size:12px}.grid{display:grid;grid-template-columns:1fr 420px;gap:16px;margin-top:18px}.card{background:linear-gradient(180deg,rgba(10,28,42,.90),rgba(3,12,20,.94));border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 20px 48px rgba(0,0,0,.34),0 0 28px rgba(66,248,255,.055);padding:18px;overflow:hidden}.copy{font-size:clamp(42px,6vw,76px);font-weight:900;color:#b9c7d8;min-height:110px;display:flex;align-items:center}.raw{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:18px;min-height:70px}.side{display:grid;gap:14px}.meters .row{display:grid;grid-template-columns:90px 1fr 70px;gap:8px;align-items:center;margin:9px 0}.bar{height:8px;background:#06111a;border:1px solid rgba(66,248,255,.18);border-radius:99px;overflow:hidden}.bar span{display:block;height:100%;background:linear-gradient(90deg,var(--teal),var(--orange));box-shadow:0 0 14px rgba(255,176,46,.2)}button{border:1px solid rgba(66,248,255,.25);border-radius:11px;background:linear-gradient(180deg,rgba(22,45,62,.92),rgba(6,20,31,.96));color:var(--text);padding:11px 14px;font-weight:800;cursor:pointer}button.primary,.tab.active{background:linear-gradient(135deg,#5eead4,#43d9ff,#189dff);color:#031017;border-color:rgba(160,255,255,.86)}button:disabled{opacity:.45;cursor:not-allowed}.tabs{display:flex;gap:8px;margin:12px 0 18px}.panel{display:none}.panel.active{display:block}.settings{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.setting{background:linear-gradient(180deg,rgba(5,17,27,.62),rgba(3,10,17,.70));border:1px solid rgba(66,248,255,.16);border-radius:16px;padding:14px}label{display:block;text-transform:uppercase;letter-spacing:.08em;color:#d8f9ff;font-size:12px;margin-bottom:8px}input,select,textarea{width:100%;background:#030c13;color:var(--text);border:1px solid rgba(66,248,255,.28);border-radius:10px;padding:11px}input[type=range]{accent-color:var(--teal)}.preview{width:210px;max-width:100%;border-radius:14px;border:1px solid rgba(66,248,255,.34);box-shadow:0 16px 34px rgba(0,0,0,.42),0 0 30px rgba(66,248,255,.12)}.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.log{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;white-space:pre-wrap}.network-row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px}.footergrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}@media(max-width:1000px){.grid,.two,.footergrid{grid-template-columns:1fr}.settings{grid-template-columns:1fr}.badges{justify-content:flex-start}}
+:root{
+  --bg:#070b10;
+  --panel:#101821;
+  --panel2:#15202b;
+  --panel3:#0d141c;
+  --line:#263746;
+  --line2:#3a4d60;
+  --text:#edf4ff;
+  --muted:#91a2b4;
+  --muted2:#6f8091;
+  --good:#54f28f;
+  --warn:#ffd166;
+  --bad:#ff6b6b;
+  --blue:#70b7ff;
+  --violet:#b69cff;
+  --shadow:0 18px 50px rgba(0,0,0,.38);
+  --radius:18px;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  min-height:100vh;
+  color:var(--text);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(112,183,255,.12), transparent 35%),
+    radial-gradient(circle at 90% 10%, rgba(182,156,255,.10), transparent 30%),
+    linear-gradient(180deg,#071019 0%,#05080c 100%);
+  font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.app{
+  width:min(1760px,100%);
+  margin:0 auto;
+  padding:22px;
+}
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  margin-bottom:18px;
+}
+.brand{
+  display:flex;
+  align-items:center;
+  gap:14px;
+}
+.logo{
+  width:48px;
+  height:48px;
+  border-radius:16px;
+  display:grid;
+  place-items:center;
+  color:#061018;
+  font-weight:900;
+  letter-spacing:-2px;
+  background:linear-gradient(135deg,var(--good),var(--blue));
+  box-shadow:0 0 28px rgba(84,242,143,.25);
+}
+.title h1{
+  margin:0;
+  font-size:clamp(28px,3vw,44px);
+  letter-spacing:-.045em;
+  line-height:1;
+}
+.title .sub{
+  margin-top:7px;
+  color:var(--muted);
+  font-size:14px;
+}
+.statusPills{
+  display:flex;
+  flex-wrap:wrap;
+  justify-content:flex-end;
+  gap:8px;
+}
+.pill{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  border:1px solid var(--line);
+  background:rgba(16,24,33,.78);
+  border-radius:999px;
+  padding:8px 12px;
+  color:var(--muted);
+  font-size:13px;
+}
+.dot{
+  width:9px;
+  height:9px;
+  border-radius:999px;
+  background:var(--muted2);
+  box-shadow:0 0 0 rgba(0,0,0,0);
+}
+.dot.good{background:var(--good);box-shadow:0 0 18px rgba(84,242,143,.55)}
+.dot.warn{background:var(--warn);box-shadow:0 0 18px rgba(255,209,102,.55)}
+.dot.bad{background:var(--bad);box-shadow:0 0 18px rgba(255,107,107,.55)}
+.grid{
+  display:grid;
+  grid-template-columns:1.35fr .65fr;
+  gap:16px;
+}
+.card{
+  background:linear-gradient(180deg,rgba(21,32,43,.96),rgba(13,20,28,.96));
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+}
+.cardHead{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:16px 18px 0;
+}
+.cardHead h2,.cardHead h3{
+  margin:0;
+  letter-spacing:-.02em;
+}
+.cardHead h2{font-size:18px}
+.cardHead h3{font-size:16px}
+.cardBody{padding:16px 18px 18px}
+.copyBox{
+  min-height:188px;
+  display:flex;
+  align-items:center;
+}
+.copyText{
+  width:100%;
+  font-size:clamp(36px,5.5vw,86px);
+  line-height:1.08;
+  letter-spacing:-.035em;
+  font-weight:760;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.copyText.empty{
+  color:var(--muted2);
+  font-weight:650;
+}
+.rawText{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:clamp(15px,1.3vw,20px);
+  color:#d9e7f5;
+  min-height:70px;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+.sideGrid{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:16px;
+}
+.metricGrid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+}
+.metric{
+  background:rgba(7,11,16,.42);
+  border:1px solid rgba(58,77,96,.65);
+  border-radius:14px;
+  padding:12px;
+}
+.metric .label{
+  color:var(--muted);
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+.metric .value{
+  margin-top:6px;
+  font-size:22px;
+  font-weight:800;
+  letter-spacing:-.03em;
+}
+.value.good{color:var(--good)}
+.value.warn{color:var(--warn)}
+.value.bad{color:var(--bad)}
+.bigMetric{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+}
+.toneHero{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+}
+.toneHero .tone{
+  font-size:52px;
+  font-weight:900;
+  letter-spacing:-.06em;
+}
+.toneHero .hz{
+  color:var(--muted);
+  font-size:20px;
+  font-weight:700;
+}
+.barGroup{display:grid;gap:12px}
+.barRow{
+  display:grid;
+  grid-template-columns:95px 1fr 58px;
+  align-items:center;
+  gap:10px;
+  font-size:13px;
+  color:var(--muted);
+}
+.barTrack{
+  height:12px;
+  border-radius:999px;
+  background:#061018;
+  border:1px solid rgba(58,77,96,.7);
+  overflow:hidden;
+}
+.barFill{
+  height:100%;
+  width:0%;
+  border-radius:999px;
+  background:linear-gradient(90deg,var(--blue),var(--good));
+}
+.barFill.warn{background:linear-gradient(90deg,var(--warn),#ff9f1c)}
+.barFill.bad{background:linear-gradient(90deg,var(--bad),#ff3b3b)}
+.tones{
+  display:grid;
+  gap:8px;
+}
+.toneRow{
+  display:grid;
+  grid-template-columns:70px 1fr auto;
+  align-items:center;
+  gap:10px;
+  color:var(--muted);
+  font-size:13px;
+}
+.toneLabel{font-weight:800;color:#e8f1fb}
+.toneMini{
+  height:8px;
+  border-radius:999px;
+  background:#061018;
+  border:1px solid rgba(58,77,96,.55);
+  overflow:hidden;
+}
+.toneMini div{
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,var(--violet),var(--blue));
+}
+.controls{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+button,.btn{
+  appearance:none;
+  border:1px solid var(--line2);
+  background:linear-gradient(180deg,#243142,#172231);
+  color:var(--text);
+  padding:10px 13px;
+  border-radius:12px;
+  text-decoration:none;
+  font:inherit;
+  font-size:14px;
+  cursor:pointer;
+}
+button:hover,.btn:hover{border-color:var(--blue)}
+button.primary{
+  background:linear-gradient(135deg,#2662ff,#14b8a6);
+  border-color:rgba(112,183,255,.5);
+}
+.small{
+  color:var(--muted);
+  font-size:13px;
+}
+.statusLog{
+  max-height:150px;
+  overflow:auto;
+  color:var(--muted);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12px;
+  line-height:1.45;
+}
+.footerGrid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:16px;
+  margin-top:16px;
+}
+.badge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  border-radius:999px;
+  padding:5px 9px;
+  font-size:12px;
+  color:var(--muted);
+  border:1px solid var(--line);
+  background:rgba(7,11,16,.38);
+}
+.badge.good{color:var(--good);border-color:rgba(84,242,143,.35)}
+.badge.warn{color:var(--warn);border-color:rgba(255,209,102,.35)}
+.badge.bad{color:var(--bad);border-color:rgba(255,107,107,.35)}
+.kv{
+  display:grid;
+  grid-template-columns:150px 1fr;
+  gap:7px 12px;
+  font-size:14px;
+}
+.kv div:nth-child(odd){color:var(--muted)}
+.kv div:nth-child(even){font-weight:700}
+.settingsGrid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;
+}
+.setting{
+  background:rgba(7,11,16,.42);
+  border:1px solid rgba(58,77,96,.65);
+  border-radius:14px;
+  padding:12px;
+}
+.setting label{
+  display:block;
+  color:var(--muted);
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  margin-bottom:7px;
+}
+.setting input,.setting select,.setting textarea{
+  width:100%;
+  border:1px solid var(--line2);
+  background:#071019;
+  color:var(--text);
+  border-radius:10px;
+  padding:9px 10px;
+  font:inherit;
+}
+.setting textarea{
+  min-height:72px;
+  resize:vertical;
+}
+.setting .hint{
+  margin-top:6px;
+  color:var(--muted2);
+  font-size:12px;
+  line-height:1.35;
+}
+@media(max-width:1050px){
+  .settingsGrid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:650px){
+  .settingsGrid{grid-template-columns:1fr}
+}
+
+.tabs{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:14px;
+}
+.tabBtn{
+  border:1px solid var(--line2);
+  background:#101a26;
+  color:var(--muted);
+  border-radius:999px;
+  padding:9px 13px;
+  font-weight:750;
+  cursor:pointer;
+}
+.tabBtn.active{
+  color:#061018;
+  border-color:transparent;
+  background:linear-gradient(135deg,var(--good),var(--blue));
+}
+.tabPane{display:none}
+.tabPane.active{display:block}
+.generatorHero{
+  display:grid;
+  grid-template-columns:1fr 280px;
+  gap:14px;
+}
+.generatorPreview{
+  background:#071019;
+  border:1px solid var(--line2);
+  border-radius:14px;
+  padding:12px;
+  min-height:140px;
+}
+.morsePreview{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  color:#d9e7f5;
+  font-size:15px;
+  line-height:1.55;
+  word-break:break-word;
+  white-space:pre-wrap;
+}
+@media(max-width:900px){
+  .generatorHero{grid-template-columns:1fr}
+}
+
+.playbackModes{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-bottom:14px;
+}
+.modeTile{
+  min-width:96px;
+  border:1px solid var(--line2);
+  border-radius:14px;
+  padding:12px;
+  background:#071019;
+  color:var(--muted);
+  cursor:pointer;
+  text-align:center;
+  font-weight:800;
+}
+.modeTile.active{
+  color:#061018;
+  border-color:transparent;
+  background:linear-gradient(135deg,var(--good),var(--blue));
+}
+.modeTile.disabled{
+  opacity:.45;
+  cursor:not-allowed;
+}
+.presetGrid{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:8px;
+}
+.presetGrid button{
+  padding:8px 10px;
+}
+.advancedTrainer{
+  display:none;
+  margin-top:12px;
+}
+.advancedTrainer.active{
+  display:block;
+}
+.trainerSectionTitle{
+  margin:2px 0 10px;
+  color:var(--text);
+  font-weight:850;
+  letter-spacing:-.02em;
+}
+
+.selfTestResult{
+  margin-top:12px;
+  padding:12px;
+  border:1px solid var(--line2);
+  border-radius:14px;
+  background:#071019;
+  color:var(--muted);
+}
+.selfTestResult.good{border-color:rgba(84,242,143,.7);color:var(--text)}
+.selfTestResult.warn{border-color:rgba(255,209,102,.7);color:var(--text)}
+.selfTestResult.bad{border-color:rgba(255,107,107,.7);color:var(--text)}
+.selfTestMono{
+  margin-top:8px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  white-space:pre-wrap;
+  word-break:break-word;
+  color:#d9e7f5;
+}
+
+.networkGrid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:12px;
+}
+.networkBox{
+  border:1px solid var(--line2);
+  border-radius:14px;
+  background:#071019;
+  padding:12px;
+}
+.networkBox h4{
+  margin:0 0 10px;
+  font-size:14px;
+}
+.networkList{
+  display:grid;
+  gap:7px;
+}
+.networkRow{
+  display:grid;
+  grid-template-columns:1.8fr .45fr .9fr .55fr .6fr;
+  gap:8px;
+  border-bottom:1px solid rgba(58,77,96,.35);
+  padding:6px 0;
+  color:var(--muted);
+  font-size:13px;
+}
+.networkRow b{
+  color:var(--text);
+}
+.networkWarn{
+  margin-top:12px;
+  border:1px solid rgba(255,209,102,.5);
+  color:var(--warn);
+  background:rgba(255,209,102,.08);
+  border-radius:14px;
+  padding:12px;
+}
+@media(max-width:900px){
+  .networkGrid{grid-template-columns:1fr}
+}
+
+.networkConnectForm{
+  display:grid;
+  grid-template-columns:1.35fr 1.15fr auto;
+  gap:10px;
+  align-items:end;
+}
+.networkConnectForm label{
+  display:block;
+  color:var(--muted);
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  margin-bottom:7px;
+}
+.networkConnectForm input{
+  width:100%;
+  border:1px solid var(--line2);
+  background:#071019;
+  color:var(--text);
+  border-radius:10px;
+  padding:9px 10px;
+  font:inherit;
+}
+.networkUseBtn{
+  padding:6px 12px;
+  font-size:12px;
+  font-weight:700;
+  border-radius:999px;
+  border:1px solid #1d4ed8;
+  background:linear-gradient(180deg,#3b82f6 0%,#2563eb 100%);
+  color:#ffffff;
+  cursor:pointer;
+  box-shadow:0 1px 2px rgba(0,0,0,.25);
+}
+.networkUseBtn:hover{
+  border-color:#60a5fa;
+  background:linear-gradient(180deg,#60a5fa 0%,#2563eb 100%);
+}
+@media(max-width:900px){
+  .networkConnectForm{grid-template-columns:1fr}
+}
+.hidden{display:none}
+@media(max-width:1050px){
+  .grid{grid-template-columns:1fr}
+  .footerGrid{grid-template-columns:1fr}
+  .topbar{align-items:flex-start;flex-direction:column}
+  .statusPills{justify-content:flex-start}
+}
+@media(max-width:650px){
+  .app{padding:14px}
+  .metricGrid,.bigMetric{grid-template-columns:1fr}
+  .copyBox{min-height:130px}
+  .barRow{grid-template-columns:80px 1fr 48px}
+}
 </style>
-</head><body><div id="wm"></div><div class="app"><div class="top"><div class="brand"><div class="logo">MW</div><div><h1>The Morse Whisperer</h1><div class="sub">CW decoder appliance · Raspberry Pi live receiver</div></div></div><div class="badges"><span class="badge" id="runBadge">● running</span><span class="badge" id="updated">Updated --</span><span class="badge" id="device">Device --</span><span class="badge" id="squelch">Squelch --</span></div></div><div class="grid"><main><section class="card"><b>Stable COPY</b><div class="copy" id="copy">Waiting for CW...</div></section><section class="card" style="margin-top:14px"><b>Stable RAW</b><div class="raw" id="raw">No accepted raw copy yet.</div></section></main><aside class="side"><section class="card"><b>Tone Lock</b><div style="font-size:50px;font-weight:900;margin-top:25px"><span id="tone">--</span> <small>Hz</small></div><small id="toneReason">none</small></section><section class="card meters"><b>Signal Quality</b><div class="row"><small>SNR</small><div class="bar"><span id="snrBar"></span></div><small id="snrVal">--</small></div><div class="row"><small>Confidence</small><div class="bar"><span id="confBar"></span></div><small id="confVal">--</small></div><div class="row"><small>RMS</small><div class="bar"><span id="rmsBar"></span></div><small id="rmsVal">--</small></div></section><section class="card"><b>Operator Controls</b><p><button class="primary" onclick="resetCopy()">Reset copy / buffer</button> <button onclick="copyTxt()">Copy TXT</button> <button onclick="fetch('/api/snapshot').then(r=>r.json()).then(j=>navigator.clipboard.writeText(JSON.stringify(j,null,2)))">Copy JSON</button></p></section></aside></div><section class="card" style="margin-top:18px"><b>Morse Controls</b><div class="tabs"><button class="tab active" onclick="tab('settings',this)">Settings</button><button class="tab" onclick="tab('trainer',this)">CW Generator / Trainer</button><button class="tab" onclick="tab('network',this)">Network Setup</button></div><div id="settings" class="panel active"><div class="settings"><div class="setting"><label>Decoder mode</label><select id="setToneMode"><option value="session_auto">Full auto — recommended</option><option value="fixed">Fixed tone</option></select><div class="hint">Full auto scans for CW tone at start of session.</div></div><div class="setting"><label>Tone Hz</label><input id="setTone" type="number"></div><div class="setting"><label>WPM hint</label><input id="setWpm" type="number" step="0.25"></div><div class="setting"><label>Input level %</label><input id="setInput" type="range" min="0" max="100"><div class="hint"><span id="setInputVal">--</span>% · ALSA capture attempt</div></div><div class="setting"><label>TFT brightness %</label><input id="setBright" type="range" min="10" max="100"><div class="hint"><span id="setBrightVal">--</span>% · software dimming</div></div><div class="setting"><label>TFT idle splash</label><select id="setIdle"><option value="true">Enabled</option><option value="false">Disabled</option></select><div class="hint">Shows splash after no CW or button activity.</div><img class="preview" src="/assets/horse_boot_splash.png"></div><div class="setting"><label>TFT idle timeout</label><input id="setIdleSec" type="number" min="15" max="3600" step="15"><div class="hint">300 = five minutes.</div></div><div class="setting"><label>USB speaker output</label><input id="setOut" placeholder="plughw:2,0"></div></div><p><button class="primary" onclick="saveSettings()">Save settings</button> <button onclick="loadSettings()">Reload</button></p></div><div id="trainer" class="panel"><div class="settings"><div class="setting"><label>Training text</label><textarea id="cwText" rows="5">VVV THE MORSE WHISPERER TEST 73</textarea></div><div class="setting"><label>Character speed WPM</label><input id="cwWpm" type="number" step="0.25"></div><div class="setting"><label>Pitch Hz</label><input id="cwTone" type="number"></div><div class="setting"><label>Volume %</label><input id="cwVol" type="range" min="5" max="95"><div class="hint"><span id="cwVolVal">--</span>% output level</div></div></div><p><button class="primary" onclick="playCw()">Play CW</button> <button onclick="stopCw()">Stop CW</button> <button onclick="selfTest()">Generate + Decode</button></p><pre class="log" id="selftest">Self-test decode has not been run yet.</pre></div><div id="network" class="panel"><div class="two"><div class="card"><b>Current network status</b><pre class="log" id="netStatus">Press refresh.</pre><button class="primary" onclick="netStatus()">Refresh status</button> <button onclick="wifiScan()">Scan Wi-Fi</button></div><div class="card"><b>Nearby Wi-Fi networks</b><pre class="log" id="wifiList">Press Scan Wi-Fi.</pre></div></div><div class="card" style="margin-top:12px"><b>Join Wi-Fi network</b><p class="hint">Changing Wi-Fi can disconnect this browser or SSH session. Plug in Ethernet first if possible.</p><div class="network-row"><input id="ssid" placeholder="SSID"><input id="psk" placeholder="Password / PSK"><button class="primary" onclick="wifiConnect()">Connect Wi-Fi</button></div><pre class="log" id="wifiResult"></pre></div></div></section><div class="footergrid"><section class="card"><b>Current Signal</b><pre class="log" id="current">--</pre></section><section class="card"><b>Tone Ranking</b><div id="ranking"></div></section><section class="card"><b>Decode History</b><pre class="log" id="history">--</pre></section><section class="card"><b>Status Log</b><pre class="log" id="status">--</pre></section></div></div><script>
+
+<style>
+.tftIdlePreview{
+  display:block;
+  width:100%;
+  max-width:260px;
+  aspect-ratio:4/3;
+  object-fit:cover;
+  margin-top:10px;
+  border-radius:14px;
+  border:1px solid rgba(111, 227, 255, 0.22);
+  box-shadow:0 10px 30px rgba(0,0,0,.35), inset 0 0 0 1px rgba(255,255,255,.02);
+  opacity:.92;
+}
+</style>
+
+
+
+
+<style>
+/* MW_NEON_HORSE_THEME_V3 */
+:root{
+  --mw-bg:#02070b;
+  --mw-bg2:#06111a;
+  --mw-card:#071824;
+  --mw-card2:#0c2230;
+  --mw-cyan:#42f8ff;
+  --mw-cyan-soft:rgba(66,248,255,.34);
+  --mw-cyan-faint:rgba(66,248,255,.12);
+  --mw-teal:#5eead4;
+  --mw-orange:#ffb02e;
+  --mw-orange-soft:rgba(255,176,46,.35);
+  --mw-purple:#b794ff;
+  --mw-green:#68ff9f;
+  --mw-red:#ff5f72;
+  --mw-text:#eefcff;
+  --mw-muted:#93aaba;
+}
+
+/* Base backdrop */
+html,body{
+  background:
+    radial-gradient(circle at 68% 0%, rgba(66,248,255,.13), transparent 24rem),
+    radial-gradient(circle at 18% 20%, rgba(255,176,46,.08), transparent 24rem),
+    radial-gradient(circle at 95% 58%, rgba(183,148,255,.07), transparent 26rem),
+    linear-gradient(135deg,#02070b 0%,#06121b 42%,#070c18 100%) !important;
+  color:var(--mw-text) !important;
+}
+
+/* Grid and scanline atmosphere */
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  z-index:-3;
+  background-image:
+    linear-gradient(rgba(66,248,255,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(66,248,255,.035) 1px, transparent 1px),
+    linear-gradient(rgba(255,255,255,.018) 50%, transparent 50%);
+  background-size:38px 38px, 38px 38px, 100% 4px;
+  opacity:.75;
+  mask-image:radial-gradient(circle at 50% 18%, black 0%, transparent 82%);
+}
+
+/* Large horse/key watermark, left side like the mockup */
+body::after{
+  content:"";
+  position:fixed;
+  left:-44px;
+  top:78px;
+  width:360px;
+  height:520px;
+  pointer-events:none;
+  z-index:-2;
+  background:url('/assets/horse_boot_splash.png') center/cover no-repeat;
+  opacity:.18;
+  filter:saturate(1.35) contrast(1.12);
+  border-radius:34px;
+  box-shadow:
+    0 0 90px rgba(66,248,255,.10),
+    0 0 130px rgba(255,176,46,.06);
+}
+
+/* App container spacing, if applicable */
+main,
+.container,
+.wrap{
+  position:relative;
+}
+
+/* Main cards: bolder neon rim, but not every random panel */
+.card{
+  background:
+    linear-gradient(180deg, rgba(10,28,42,.90), rgba(3,12,20,.94)) !important;
+  border:1px solid rgba(66,248,255,.27) !important;
+  border-radius:18px !important;
+  box-shadow:
+    0 20px 48px rgba(0,0,0,.34),
+    0 0 0 1px rgba(66,248,255,.025),
+    0 0 28px rgba(66,248,255,.055),
+    inset 0 1px 0 rgba(255,255,255,.04) !important;
+  overflow:hidden;
+}
+
+.card:hover{
+  border-color:rgba(66,248,255,.42) !important;
+  box-shadow:
+    0 22px 52px rgba(0,0,0,.38),
+    0 0 34px rgba(66,248,255,.10),
+    inset 0 1px 0 rgba(255,255,255,.05) !important;
+}
+
+/* Card title/header strip effect */
+.card > h3:first-child,
+.card > h4:first-child{
+  margin-left:-2px;
+  margin-right:-2px;
+  padding-bottom:8px;
+  border-bottom:1px solid rgba(66,248,255,.18);
+}
+
+/* Headings */
+h1,h2,h3,h4{
+  color:var(--mw-text) !important;
+}
+
+h1{
+  color:#eaffff !important;
+  text-shadow:
+    0 0 10px rgba(66,248,255,.42),
+    0 0 24px rgba(66,248,255,.18) !important;
+}
+
+h1::after{
+  content:"";
+  display:block;
+  width:180px;
+  height:2px;
+  margin-top:6px;
+  background:linear-gradient(90deg,var(--mw-cyan),transparent);
+  box-shadow:0 0 16px rgba(66,248,255,.45);
+}
+
+/* Logo chip */
+.logo,
+[class*="logo"]{
+  box-shadow:
+    0 0 18px rgba(66,248,255,.35),
+    inset 0 1px 0 rgba(255,255,255,.22) !important;
+}
+
+/* Stable COPY hero */
+#stableCopy,
+.copyHero,
+[class*="stable"] [class*="copy"],
+.card:has(#stableCopy){
+  text-shadow:
+    0 0 18px rgba(66,248,255,.18),
+    0 0 38px rgba(66,248,255,.08);
+}
+
+/* Waiting for CW text */
+.big,
+.hero,
+[class*="hero"]{
+  color:#dffaff !important;
+  text-shadow:
+    0 0 16px rgba(66,248,255,.22),
+    0 0 44px rgba(66,248,255,.10) !important;
+}
+
+/* Settings tiles */
+.setting{
+  background:
+    linear-gradient(180deg, rgba(5,17,27,.62), rgba(3,10,17,.70)) !important;
+  border:1px solid rgba(66,248,255,.16) !important;
+  border-radius:16px !important;
+  padding:14px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.025),
+    0 0 18px rgba(66,248,255,.025) !important;
+}
+
+.setting:hover{
+  border-color:rgba(66,248,255,.34) !important;
+  box-shadow:
+    0 0 22px rgba(66,248,255,.07),
+    inset 0 1px 0 rgba(255,255,255,.035) !important;
+}
+
+.setting label,
+label{
+  color:#d8f9ff !important;
+}
+
+/* Inputs */
+input,
+select,
+textarea{
+  background:#030c13 !important;
+  color:var(--mw-text) !important;
+  border:1px solid rgba(66,248,255,.28) !important;
+  border-radius:10px !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.025),
+    0 0 14px rgba(66,248,255,.025) !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus{
+  outline:none !important;
+  border-color:rgba(66,248,255,.78) !important;
+  box-shadow:
+    0 0 0 3px rgba(66,248,255,.11),
+    0 0 24px rgba(66,248,255,.12),
+    inset 0 1px 0 rgba(255,255,255,.04) !important;
+}
+
+/* Range sliders */
+input[type="range"]{
+  accent-color:var(--mw-teal);
+  filter:drop-shadow(0 0 6px rgba(94,234,212,.34));
+}
+
+/* Buttons */
+button,
+.button{
+  border:1px solid rgba(66,248,255,.25) !important;
+  border-radius:11px !important;
+  background:
+    linear-gradient(180deg, rgba(22,45,62,.92), rgba(6,20,31,.96)) !important;
+  color:var(--mw-text) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.05),
+    0 0 14px rgba(66,248,255,.055) !important;
+  transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+
+button:hover,
+.button:hover{
+  transform:translateY(-1px);
+  border-color:rgba(66,248,255,.60) !important;
+  box-shadow:
+    0 0 22px rgba(66,248,255,.16),
+    inset 0 1px 0 rgba(255,255,255,.07) !important;
+}
+
+button.primary,
+.primary{
+  background:
+    linear-gradient(135deg, #5eead4 0%, #43d9ff 48%, #189dff 100%) !important;
+  color:#031017 !important;
+  font-weight:900 !important;
+  border-color:rgba(160,255,255,.86) !important;
+  box-shadow:
+    0 0 20px rgba(66,248,255,.28),
+    0 0 42px rgba(66,248,255,.10),
+    inset 0 1px 0 rgba(255,255,255,.32) !important;
+}
+
+/* Tabs */
+.tabs button,
+.tab,
+[role="tab"]{
+  border-color:rgba(66,248,255,.25) !important;
+}
+
+.tabs button.active,
+.tab.active,
+[role="tab"][aria-selected="true"]{
+  background:
+    linear-gradient(135deg, #5eead4, #5dbdff) !important;
+  color:#021016 !important;
+  border-color:rgba(165,255,255,.86) !important;
+  box-shadow:0 0 20px rgba(66,248,255,.25) !important;
+}
+
+/* Meter bars */
+.bar span,
+.meter span{
+  background:
+    linear-gradient(90deg, var(--mw-teal), var(--mw-orange)) !important;
+  box-shadow:
+    0 0 14px rgba(94,234,212,.24),
+    0 0 18px rgba(255,176,46,.18);
+}
+
+/* Tone ranking gets a bit of the cyberpunk analyser look */
+#toneRanking .bar span,
+[class*="tone"] .bar span{
+  background:
+    linear-gradient(90deg, var(--mw-purple), #7cc7ff, var(--mw-cyan)) !important;
+}
+
+/* Pills and badges */
+.badge,
+.pill{
+  background:rgba(2,10,16,.78) !important;
+  border:1px solid rgba(66,248,255,.24) !important;
+  color:#eaffff !important;
+  box-shadow:0 0 14px rgba(66,248,255,.055);
+}
+
+.badge.ok,
+.badge.good,
+.badge.running,
+[class*="running"]{
+  color:var(--mw-green) !important;
+  border-color:rgba(104,255,159,.42) !important;
+  box-shadow:0 0 16px rgba(104,255,159,.11);
+}
+
+.badge.warn,
+.badge.low,
+.badge.hot{
+  color:var(--mw-orange) !important;
+  border-color:rgba(255,176,46,.42) !important;
+  box-shadow:0 0 16px rgba(255,176,46,.11);
+}
+
+.badge.bad,
+.badge.error,
+.badge.clip{
+  color:var(--mw-red) !important;
+  border-color:rgba(255,95,114,.45) !important;
+  box-shadow:0 0 16px rgba(255,95,114,.11);
+}
+
+/* Hints / muted */
+.hint,
+.muted,
+small{
+  color:var(--mw-muted) !important;
+}
+
+/* TFT preview */
+.tftIdlePreview{
+  display:block;
+  width:100%;
+  max-width:240px;
+  aspect-ratio:4/3;
+  object-fit:cover;
+  margin-top:10px;
+  border-radius:14px;
+  border:1px solid rgba(66,248,255,.34);
+  box-shadow:
+    0 16px 34px rgba(0,0,0,.42),
+    0 0 30px rgba(66,248,255,.12),
+    0 0 18px rgba(255,176,46,.08);
+  opacity:.96;
+}
+
+/* Logs */
+pre,
+code,
+[class*="log"]{
+  color:#d9fbff !important;
+}
+
+/* A subtle glow divider on the Morse Controls card */
+#controls,
+#morseControls,
+.card:has(.tabs){
+  position:relative;
+}
+
+#controls::before,
+#morseControls::before,
+.card:has(.tabs)::before{
+  content:"";
+  position:absolute;
+  left:18px;
+  right:18px;
+  top:0;
+  height:1px;
+  background:linear-gradient(90deg, transparent, rgba(66,248,255,.85), transparent);
+  box-shadow:0 0 20px rgba(66,248,255,.42);
+}
+
+/* Let the left watermark disappear on narrow screens */
+@media (max-width:1100px){
+  body::after{
+    opacity:.08;
+    width:240px;
+    height:180px;
+    left:auto;
+    right:12px;
+    top:12px;
+  }
+}
+
+@media (max-width:800px){
+  body::after{
+    display:none;
+  }
+}
+</style>
+
+
+
+
+
+
+<style>
+/* MW_CENTER_SCALE_WATERMARK_V2 */
+
+/* Disable older pseudo-watermarks. */
+body::after{
+  display:none !important;
+}
+
+/* Keep app content above the watermark. */
+body > *:not(#mwSplashWatermark){
+  position:relative;
+  z-index:2;
+}
+
+/* Centred scalable splash watermark, tuned to sit behind the middle of the UI
+   without disappearing completely behind the top cards. */
+#mwSplashWatermark{
+  position:fixed;
+  inset:0;
+  z-index:1;
+  pointer-events:none;
+
+  background-image:
+    radial-gradient(circle at 50% 54%, rgba(66,248,255,.18), transparent 38%),
+    radial-gradient(circle at 52% 64%, rgba(255,176,46,.13), transparent 42%),
+    url('/assets/horse_boot_splash.png');
+
+  background-position:
+    center 52%,
+    center 58%,
+    center 48%;
+
+  background-repeat:no-repeat;
+
+  background-size:
+    min(106vw, 1180px) min(79vw, 885px),
+    min(96vw, 1040px) min(72vw, 780px),
+    min(88vw, 940px) auto;
+
+  opacity:.42;
+  filter:saturate(1.45) contrast(1.14) brightness(1.12);
+  mix-blend-mode:screen;
+}
+
+/* Lighter readability veil than before. Still keeps the controls legible. */
+#mwSplashWatermark::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(2,7,11,.04), rgba(2,7,11,.36) 58%, rgba(2,7,11,.78) 100%),
+    linear-gradient(90deg, rgba(2,7,11,.72), rgba(2,7,11,.10) 46%, rgba(2,7,11,.72));
+}
+
+/* A little extra neon glow line so it feels intentional, not accidental. */
+#mwSplashWatermark::before{
+  content:"";
+  position:absolute;
+  left:18%;
+  right:18%;
+  top:54%;
+  height:1px;
+  background:linear-gradient(90deg, transparent, rgba(66,248,255,.34), rgba(255,176,46,.22), transparent);
+  box-shadow:0 0 26px rgba(66,248,255,.18);
+}
+
+/* Large screens can carry more art. */
+@media (min-width:1500px){
+  #mwSplashWatermark{
+    opacity:.46;
+    background-size:
+      1320px 990px,
+      1160px 870px,
+      1040px auto;
+  }
+}
+
+/* Small screens: tone it down. */
+@media (max-width:1000px){
+  #mwSplashWatermark{
+    opacity:.24;
+    background-position:
+      center 50%,
+      center 56%,
+      center 50%;
+    background-size:
+      120vw 90vw,
+      110vw 82vw,
+      100vw auto;
+  }
+}
+</style>
+
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo">MW</div>
+      <div class="title">
+        <h1>The Morse Whisperer</h1>
+        <div class="sub">CW decoder appliance · Raspberry Pi live receiver</div>
+      </div>
+    </div>
+    <div class="statusPills">
+      <div class="pill"><span id="modeDot" class="dot"></span><b id="mode">loading</b></div>
+      <div class="pill">Updated <b id="age">--</b></div>
+      <div class="pill">Device <b id="device">--</b></div>
+      <div class="pill">Squelch <b id="squelch">--</b></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <main>
+      <section class="card">
+        <div class="cardHead">
+          <h2>Stable COPY</h2>
+          <span id="acceptedBadge" class="badge">accepted output</span>
+        </div>
+        <div class="cardBody copyBox">
+          <div id="copy" class="copyText empty">Waiting for CW…</div>
+        </div>
+      </section>
+
+      <section class="card" style="margin-top:16px">
+        <div class="cardHead">
+          <h2>Stable RAW</h2>
+          <span class="badge">literal accepted decode</span>
+        </div>
+        <div class="cardBody">
+          <div id="raw" class="rawText">No accepted raw copy yet.</div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="sideGrid">
+      <section class="card">
+        <div class="cardHead">
+          <h3>Tone Lock</h3>
+          <span id="toneModeBadge" class="badge">--</span>
+        </div>
+        <div class="cardBody">
+          <div class="toneHero">
+            <div id="toneLock" class="tone">--</div>
+            <div class="hz">Hz</div>
+          </div>
+          <div class="small" id="toneReason">Waiting for signal</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="cardHead"><h3>Signal Quality</h3></div>
+        <div class="cardBody">
+          <div class="barGroup">
+            <div class="barRow"><div>SNR</div><div class="barTrack"><div id="snrBar" class="barFill"></div></div><b id="snrVal">--</b></div>
+            <div class="barRow"><div>Confidence</div><div class="barTrack"><div id="confBar" class="barFill"></div></div><b id="confVal">--</b></div>
+            <div class="barRow"><div>RMS</div><div class="barTrack"><div id="rmsBar" class="barFill"></div></div><b id="rmsVal">--</b></div>
+            <div class="barRow"><div>Peak</div><div class="barTrack"><div id="peakBar" class="barFill"></div></div><b id="peakVal">--</b></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="cardHead"><h3>Operator Controls</h3></div>
+        <div class="cardBody">
+          <div class="controls">
+            <button class="primary" onclick="resetCopy()">Reset copy / buffer</button>
+            <button id="filterToggleBtn" type="button" onclick="toggleBandwidthFilter()">Filter: --</button>
+            <a class="btn" href="/download/copy.txt">Copy TXT</a>
+            <a class="btn" href="/download/report.json">Report JSON</a>
+            <a class="btn" href="/api/snapshot">API</a>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="card" style="margin-top:16px">
+    <div class="cardHead">
+      <h3>Morse Controls</h3>
+      <span id="settingsState" class="badge">persistent settings</span>
+    </div>
+    <div class="cardBody">
+      <div class="tabs">
+        <button id="tabSettingsBtn" class="tabBtn active" onclick="showControlTab('settings')">Settings</button>
+        <button id="tabGeneratorBtn" class="tabBtn" onclick="showControlTab('generator')">CW Generator / Trainer</button>
+        <button id="tabNetworkBtn" class="tabBtn" onclick="showControlTab('network')">Network Setup</button>
+      </div>
+
+      <div id="tabSettings" class="tabPane active">
+        <div class="settingsGrid">
+          <div class="setting">
+            <label for="setToneMode">Decoder mode</label>
+            <select id="setToneMode">
+              <option value="session_auto">Full auto — recommended</option>
+              <option value="auto">Continuous auto tone</option>
+              <option value="fixed">Manual fixed tone</option>
+            </select>
+            <div class="hint" id="toneModeHelp">
+              Full auto scans for the CW tone at the start of a session, then locks it so noise does not drag the decoder around.
+            </div>
+          </div>
+
+          <div class="setting">
+            <label for="setTone">Tone Hz</label>
+            <input id="setTone" type="number" min="300" max="1200" step="10">
+            <div class="hint">Used for fixed/manual mode and fallback tone.</div>
+          </div>
+
+          <div class="setting">
+            <label for="setWpm">WPM hint</label>
+            <input id="setWpm" type="number" min="3" max="45" step="0.25">
+            <div class="hint">Decoder starting estimate. Does not autocorrect text.</div>
+          </div>
+
+          <div class="setting">
+            <label for="setInputLevel">Input level %</label>
+            <input id="setInputLevel" type="range" min="0" max="100" step="1">
+            <div class="hint"><span id="setInputLevelVal">--</span>% · attempts ALSA Capture level.</div>
+          </div>
+
+          <div class="setting">
+            <label for="setAudioFilterMode">Audio bandwidth filter</label>
+            <select id="setAudioFilterMode">
+              <option value="off">Off</option>
+              <option value="wide">Wide — 500 Hz</option>
+              <option value="narrow">Narrow — 220 Hz</option>
+              <option value="custom">Custom</option>
+            </select>
+            <div class="hint">Filters around the detected CW tone before decode.</div>
+          </div>
+
+          <div class="setting">
+            <label for="setAudioFilterBandwidth">Custom filter bandwidth Hz</label>
+            <input id="setAudioFilterBandwidth" type="number" min="80" max="1200" step="10">
+            <div class="hint">Used only in Custom mode. Start around 300 Hz.</div>
+          </div>
+
+          <div class="setting">
+            <label for="setLcdBrightness">TFT brightness %</label>
+            <input id="setLcdBrightness" type="range" min="10" max="100" step="1">
+            <div class="hint"><span id="setLcdBrightnessVal">--</span>% · software dimming unless hardware backlight exists.</div>
+          </div>
+
+          <div class="setting">
+            <label for="setTftIdleEnabled">TFT idle splash</label>
+            <select id="setTftIdleEnabled">
+              <option value="true">Enabled</option>
+              <option value="false">Disabled</option>
+            </select>
+            <div class="hint">Shows the horse splash after no CW or button activity.</div>
+            <img class="tftIdlePreview" src="/assets/horse_boot_splash.png" alt="TFT idle splash preview">
+          </div>
+
+          <div class="setting">
+            <label for="setTftIdleSeconds">TFT idle timeout</label>
+            <input id="setTftIdleSeconds" type="number" min="15" max="3600" step="15">
+            <div class="hint">Seconds before idle splash. 300 = five minutes. Any button wakes the TFT.</div>
+          </div>
+
+          <div class="setting">
+            <label for="setOutputDevice">USB speaker output</label>
+            <input id="setOutputDevice" type="text" placeholder="plughw:2,0">
+            <div class="hint">Used by the CW generator via aplay.</div>
+          </div>
+        </div>
+
+        <div class="controls" style="margin-top:14px">
+          <button class="primary" onclick="saveSettings()">Save settings</button>
+          <button onclick="resetDefaults()">Reset to defaults</button>
+        </div>
+      </div>
+
+      <div id="tabGenerator" class="tabPane">
+        <div class="trainerSectionTitle">Playback medium</div>
+        <div class="playbackModes">
+          <button id="playbackSound" class="modeTile active" onclick="setPlaybackMode('sound')">♪<br>Sound</button>
+          <button id="playbackLight" class="modeTile disabled" onclick="setPlaybackMode('light')" title="Future visual flash trainer mode">☼<br>Light</button>
+          <button id="playbackVibrate" class="modeTile disabled" onclick="setPlaybackMode('vibrate')" title="Future external haptic output">▣<br>Vibrate</button>
+        </div>
+
+        <div class="generatorHero">
+          <div>
+            <div class="trainerSectionTitle">Timing</div>
+            <div class="settingsGrid">
+              <div class="setting">
+                <label for="cwWpm">Character speed WPM</label>
+                <input id="cwWpm" type="number" min="3" max="40" step="0.25">
+                <div class="hint">How fast each letter is sent.</div>
+              </div>
+
+              <div class="setting">
+                <label for="cwFarnsworth">Farnsworth / overall WPM</label>
+                <input id="cwFarnsworth" type="number" min="3" max="40" step="0.25">
+                <div class="hint">Lower values stretch spacing between characters and words.</div>
+              </div>
+
+              <div class="setting">
+                <label for="cwKeyProfile">Simulated Morse key</label>
+                <select id="cwKeyProfile">
+                  <option value="computer">Computer — perfect timing</option>
+                  <option value="paddle_clean">Paddle — clean</option>
+                  <option value="paddle_learner">Paddle — learner</option>
+                  <option value="bug_light">Bug — light humanise</option>
+                  <option value="straight_human">Straight key — humanise</option>
+                </select>
+                <div class="hint">Adds timing character. Computer mode is best for decoder testing.</div>
+              </div>
+
+              <div class="setting">
+                <label for="cwTone">Pitch Hz</label>
+                <input id="cwTone" type="number" min="300" max="1200" step="10">
+                <div class="hint">Audio pitch for generated CW.</div>
+              </div>
+
+              <div class="setting">
+                <label for="cwVolume">Volume %</label>
+                <input id="cwVolume" type="range" min="5" max="95" step="1" value="35">
+                <div class="hint"><span id="cwVolumeVal">35</span>% output level.</div>
+              </div>
+
+              <div class="setting">
+                <label for="cwAdvancedToggle">Advanced timing</label>
+                <select id="cwAdvancedToggle" onchange="toggleTrainerAdvanced()">
+                  <option value="off">Hidden</option>
+                  <option value="on">Show advanced timing</option>
+                </select>
+                <div class="hint">Start delay, end gap, and future weighting controls.</div>
+              </div>
+            </div>
+
+            <div id="advancedTrainer" class="advancedTrainer">
+              <div class="settingsGrid">
+                <div class="setting">
+                  <label for="cwStartDelay">Start-up delay ms</label>
+                  <input id="cwStartDelay" type="number" min="0" max="5000" step="50">
+                  <div class="hint">Silence before sending starts.</div>
+                </div>
+
+                <div class="setting">
+                  <label for="cwEndGap">End gap ms</label>
+                  <input id="cwEndGap" type="number" min="0" max="5000" step="50">
+                  <div class="hint">Silence after sending finishes.</div>
+                </div>
+
+                <div class="setting">
+                  <label for="cwPlaybackMode">Playback mode</label>
+                  <select id="cwPlaybackMode">
+                    <option value="sound">Sound</option>
+                    <option value="light" disabled>Light — future</option>
+                    <option value="vibrate" disabled>Vibrate — future</option>
+                  </select>
+                  <div class="hint">Only Sound is active on this hardware today.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="trainerSectionTitle" style="margin-top:16px">Text / lesson</div>
+            <div class="setting">
+              <label for="cwText">Training text</label>
+              <textarea id="cwText">VVV THE MORSE WHISPERER TEST 73</textarea>
+              <div class="hint">Generated locally and played out the USB sound card.</div>
+              <div class="presetGrid">
+                <button onclick="setTrainerPreset('VVV THE MORSE WHISPERER TEST 73')">Test</button>
+                <button onclick="setTrainerPreset('AAAAAAAAAA THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG')">Decoder test</button>
+                <button onclick="setTrainerPreset('ZL1SXG ZL2RO 73')">Callsigns</button>
+                <button onclick="setTrainerPreset('CQ CQ CQ DE ZL1SXG ZL1SXG K')">CQ call</button>
+                <button onclick="setTrainerPreset('12345 67890')">Numbers</button>
+                <button onclick="setTrainerPreset('PARIS PARIS PARIS')">PARIS</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="generatorPreview">
+            <div class="small" style="margin-bottom:8px">Morse preview</div>
+            <div id="cwPreview" class="morsePreview">...</div>
+          </div>
+        </div>
+
+        <div class="controls" style="margin-top:14px">
+          <button class="primary" onclick="playCw()">Play CW</button>
+          <button onclick="selfTestCw()">Generate + Decode</button>
+          <button onclick="stopCw()">Stop CW</button>
+          <button onclick="saveSettings()">Save trainer settings</button>
+        </div>
+
+        <div id="selfTestResult" class="selfTestResult">
+          Self-test decode has not been run yet.
+        </div>
+      </div>
+
+      <div id="tabNetwork" class="tabPane">
+<div class="networkGrid" style="margin-top:14px">
+          <div class="networkBox">
+            <h4>Current network status</h4>
+            <div class="kv">
+              <div>Hostname</div><div id="netHostname">--</div>
+              <div>IP addresses</div><div id="netIps">--</div>
+              <div>Default route</div><div id="netDefaultRoute">--</div>
+              <div>Wi-Fi device</div><div id="netWifiDevice">--</div>
+              <div>Active Wi-Fi</div><div id="netActiveWifi">--</div>
+              <div>Hotspot active</div><div id="netHotspotActive">--</div>
+              <div>Fallback service</div><div id="netFallbackService">--</div>
+              <div>Setup SSID</div><div id="netSetupSsid">The Morse Whisperer</div>
+              <div>Setup URL</div><div id="netSetupUrl">http://10.42.0.1:8080</div>
+            </div>
+
+            <div class="controls" style="margin-top:14px">
+              <button class="primary" onclick="loadNetworkStatus()">Refresh status</button>
+              <button onclick="scanWifi()">Scan Wi-Fi</button>
+            </div>
+          </div>
+
+          <div class="networkBox">
+            <h4>Nearby Wi-Fi networks</h4>
+            <div id="wifiScanList" class="networkList">
+              Press Scan Wi-Fi.
+            </div>
+          </div>
+        </div>
+
+        <div class="networkBox" style="margin-top:12px">
+          <h4>Join Wi-Fi network</h4>
+          <div class="networkWarn" style="margin-top:0">
+            Changing Wi-Fi can disconnect this browser or SSH session. If possible, plug in Ethernet before changing networks.
+          </div>
+
+          <div class="networkConnectForm" style="margin-top:12px">
+            <div>
+              <label for="netConnectSsid">SSID</label>
+              <input id="netConnectSsid" type="text" placeholder="Network name">
+            </div>
+            <div>
+              <label for="netConnectPassword">Password / PSK</label>
+              <input id="netConnectPassword" type="password" placeholder="Leave blank for open Wi-Fi">
+            </div>
+            <div>
+              <button class="primary" onclick="connectWifiManual()">Connect Wi-Fi</button>
+            </div>
+          </div>
+
+          <div class="small" style="margin-top:10px">
+            Press Connect beside a scanned network to fill the SSID, then enter the password and press Connect Wi-Fi.
+          </div>
+        </div>
+
+        <div class="networkBox" style="margin-top:12px">
+          <h4>Saved NetworkManager connections</h4>
+          <div id="netConnections" class="networkList">Loading…</div>
+        </div>
+      </div>
+
+      <div class="small" id="settingsMsg" style="margin-top:10px">Settings survive reboot via config.json.</div>
+    </div>
+  </section>
+
+  <div class="footerGrid">
+    <section class="card">
+      <div class="cardHead">
+        <h3>Current Signal</h3>
+        <span id="levelBadge" class="badge">--</span>
+      </div>
+      <div class="cardBody">
+        <div class="kv">
+          <div>Selected tone</div><div id="selectedTone">--</div>
+          <div>Fallback target</div><div id="targetTone">--</div>
+          <div>WPM estimate</div><div id="wpm">--</div>
+          <div>Reason</div><div id="reason">--</div>
+          <div>Session</div><div id="session">--</div>
+          <div>Buffer</div><div id="buffer">--</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="cardHead"><h3>Tone Ranking</h3><span class="badge">current audio</span></div>
+      <div class="cardBody">
+        <div id="tones" class="tones">Waiting for tone scan…</div>
+      </div>
+    </section>
+  </div>
+
+  <div class="footerGrid">
+    <section class="card">
+      <div class="cardHead"><h3>Rejected Candidate</h3><span class="badge">hidden unless enabled</span></div>
+      <div class="cardBody">
+        <div id="candidate" class="rawText small">No rejected candidate shown.</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="cardHead"><h3>Status Log</h3></div>
+      <div class="cardBody">
+        <div id="log" class="statusLog">Loading…</div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
 function $(id){return document.getElementById(id)}
-function pct(x,max){return Math.max(0,Math.min(100,100*(Number(x)||0)/max))+'%'}
-function tab(id,b){document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));$(id).classList.add('active');b.classList.add('active')}
-async function snap(){const s=await fetch('/api/snapshot?ts='+Date.now(),{cache:'no-store'}).then(r=>r.json());const q=s.quality||{},d=s.decode||{},a=s.audio||{};$('updated').textContent='Updated '+Math.max(0,((Date.now()/1000)-(s.updated_at||0))).toFixed(1)+'s ago';$('device').textContent='Device '+((s.config||{}).audio_device||'--');$('squelch').textContent='Squelch '+(q.snr_db>3?'open':'closed');$('copy').textContent=d.copy||'Waiting for CW...';$('raw').textContent=d.raw||'No accepted raw copy yet.';$('tone').textContent=q.selected_tone_hz||'--';$('toneReason').textContent=q.reason||'none';$('snrVal').textContent=(q.snr_db||0).toFixed(1)+' dB';$('confVal').textContent=(q.confidence||0).toFixed(2);$('rmsVal').textContent=(a.rms||0).toFixed(3);$('snrBar').style.width=pct(q.snr_db,30);$('confBar').style.width=pct(q.confidence,1);$('rmsBar').style.width=pct(a.rms,.05);$('current').textContent=`Selected tone      ${q.selected_tone_hz||'--'} Hz\nFallback target    ${q.target_tone_hz||'--'} Hz\nWPM estimate       ${(q.wpm||0).toFixed(1)}\nReason             ${q.reason||'--'}\nBuffer             ${((s.audio_buffer||{}).buffered_seconds||0).toFixed(1)}s`; $('status').textContent=(s.status_log||[]).join('\n'); $('history').textContent=(s.decode_history||[]).map(x=>new Date(x.ts*1000).toLocaleTimeString()+' '+x.copy).join('\n')||'No accepted decode history yet.'; $('ranking').innerHTML=(q.tone_ranking||[]).map(r=>`<div class="meters row"><b>${r.tone_hz} Hz</b><div class="bar"><span style="width:${pct(r.score,(q.tone_ranking||[{score:1}])[0].score||1)}"></span></div><small>${Number(r.score).toExponential(2)}</small></div>`).join('')}
-async function loadSettings(){const j=await fetch('/api/settings').then(r=>r.json());const c=j.config||j;$('setToneMode').value=c.tone_mode||'session_auto';$('setTone').value=c.target_tone_hz||700;$('setWpm').value=c.initial_wpm||18.75;$('setInput').value=c.input_capture_percent??70;$('setInputVal').textContent=$('setInput').value;$('setBright').value=c.lcd_brightness_percent??100;$('setBrightVal').textContent=$('setBright').value;$('setIdle').value=String(c.tft_screen_timeout_enabled!==false);$('setIdleSec').value=c.tft_screen_timeout_sec||300;$('setOut').value=c.audio_output_device||'plughw:2,0';$('cwTone').value=c.cw_generator_tone_hz||700;$('cwWpm').value=c.cw_generator_wpm||18.75;$('cwVol').value=c.cw_generator_volume_percent??35;$('cwVolVal').textContent=$('cwVol').value}
-['setInput','setBright','cwVol'].forEach(id=>document.addEventListener('input',e=>{if(e.target.id==id)$(id+(id=='cwVol'?'Val':id=='setInput'?'Val':'Val')).textContent=e.target.value}))
-async function saveSettings(){const p={tone_mode:$('setToneMode').value,target_tone_hz:Number($('setTone').value),initial_wpm:Number($('setWpm').value),input_capture_percent:Number($('setInput').value),lcd_brightness_percent:Number($('setBright').value),tft_screen_timeout_enabled:$('setIdle').value==='true',tft_screen_timeout_sec:Number($('setIdleSec').value||300),audio_output_device:$('setOut').value,cw_generator_tone_hz:Number($('cwTone').value),cw_generator_wpm:Number($('cwWpm').value),cw_generator_volume_percent:Number($('cwVol').value)};alert(JSON.stringify(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}).then(r=>r.json())))}
-async function resetCopy(){await fetch('/api/reset',{method:'POST'});snap()}function copyTxt(){navigator.clipboard.writeText($('copy').textContent)}async function playCw(){await fetch('/api/cw/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:$('cwText').value,tone_hz:Number($('cwTone').value),wpm:Number($('cwWpm').value),volume_percent:Number($('cwVol').value)})})}async function stopCw(){await fetch('/api/cw/stop',{method:'POST'})}async function selfTest(){const r=await fetch('/api/cw/selftest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:$('cwText').value,tone_hz:Number($('cwTone').value),wpm:Number($('cwWpm').value)})}).then(r=>r.json());$('selftest').textContent=JSON.stringify(r,null,2)}async function netStatus(){$('netStatus').textContent=JSON.stringify(await fetch('/api/network/status').then(r=>r.json()),null,2)}async function wifiScan(){const r=await fetch('/api/network/scan').then(r=>r.json());$('wifiList').textContent=(r.networks||[]).map(n=>`${n.ssid}  ${n.signal}%  ${n.security}`).join('\n')||JSON.stringify(r,null,2)}async function wifiConnect(){const r=await fetch('/api/network/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid:$('ssid').value,psk:$('psk').value})}).then(r=>r.json());$('wifiResult').textContent=JSON.stringify(r,null,2)}
-loadSettings();netStatus();snap();setInterval(snap,1000);
-</script></body></html>'''
+function num(v,d=1){return Number(v||0).toFixed(d)}
+function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
+function pct(v,min,max){return clamp(((v-min)/(max-min))*100,0,100)}
+function esc(s){return String(s??'')}
+function setBar(id,val,cls=''){
+  const el=$(id);
+  el.style.width=clamp(val,0,100)+'%';
+  el.className='barFill '+cls;
+}
+function levelClass(level){
+  if(level==='GOOD') return 'good';
+  if(level==='HOT'||level==='LOW') return 'warn';
+  if(level==='CLIP'||level==='IDLE') return 'bad';
+  return '';
+}
+function reasonClass(reason, conf, snr){
+  if(reason==='ok' && Number(conf||0)>=0.85 && Number(snr||0)>=12) return 'good';
+  if(reason==='low_or_no_signal') return 'bad';
+  if(String(reason||'').includes('mismatch')) return 'warn';
+  return 'warn';
+}
+async function resetCopy(){
+  await fetch('/api/reset',{method:'POST'});
+  $('copy').textContent='Waiting for CW…';
+  $('copy').classList.add('empty');
+  $('raw').textContent='No accepted raw copy yet.';
+}
+
+/* MW_MAIN_FILTER_TOGGLE_V1 */
+function filterLabel(cfg){
+  const enabled = cfg.audio_filter_enabled !== false;
+  const mode = enabled ? (cfg.audio_filter_mode || 'wide') : 'off';
+  if(mode === 'narrow') return 'Filter: Narrow';
+  if(mode === 'custom') return 'Filter: Custom';
+  if(mode === 'off') return 'Filter: Off';
+  return 'Filter: Wide';
+}
+
+function updateFilterToggleButton(cfg){
+  const btn = $('filterToggleBtn');
+  if(!btn) return;
+
+  btn.textContent = filterLabel(cfg || {});
+  const mode = ((cfg || {}).audio_filter_enabled === false) ? 'off' : ((cfg || {}).audio_filter_mode || 'wide');
+
+  btn.classList.remove('primary');
+  btn.classList.toggle('active', mode !== 'off');
+
+  if(mode === 'narrow'){
+    btn.title = 'Bandwidth filter is narrow. Click to turn filter off.';
+  }else if(mode === 'off'){
+    btn.title = 'Bandwidth filter is off. Click to switch to wide.';
+  }else if(mode === 'custom'){
+    btn.title = 'Custom bandwidth filter is active. Click to switch to wide.';
+  }else{
+    btn.title = 'Bandwidth filter is wide. Click to switch to narrow.';
+  }
+}
+
+async function toggleBandwidthFilter(){
+  const btn = $('filterToggleBtn');
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = 'Filter: ...';
+  }
+
+  try{
+    const current = await fetch('/api/settings?ts=' + Date.now(), {cache:'no-store'}).then(r=>r.json());
+    const cfg = current.config || {};
+    const enabled = cfg.audio_filter_enabled !== false;
+    const mode = enabled ? (cfg.audio_filter_mode || 'wide') : 'off';
+
+    let nextEnabled = true;
+    let nextMode = 'wide';
+
+    if(mode === 'wide'){
+      nextMode = 'narrow';
+    }else if(mode === 'narrow'){
+      nextEnabled = false;
+      nextMode = 'off';
+    }else{
+      nextMode = 'wide';
+    }
+
+    const payload = {
+      audio_filter_enabled: nextEnabled,
+      audio_filter_mode: nextMode,
+      audio_filter_bandwidth_hz: Number(cfg.audio_filter_bandwidth_hz || 300)
+    };
+
+    const saved = await fetch('/api/settings', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    }).then(r=>r.json());
+
+    if(!saved.ok){
+      throw new Error(saved.error || 'settings save failed');
+    }
+
+    const updated = Object.assign({}, cfg, payload);
+    updateFilterToggleButton(updated);
+
+    if($('settingsMsg')){
+      $('settingsMsg').textContent = 'Bandwidth filter set to ' + (nextEnabled ? nextMode : 'off') + '.';
+    }
+  }catch(e){
+    if($('settingsMsg')){
+      $('settingsMsg').textContent = 'Filter toggle failed: ' + e;
+    }
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+function updateToneRanking(ranking){
+  const list=(ranking||[]).slice(0,10);
+  if(!list.length){
+    $('tones').textContent='Waiting for tone scan…';
+    return;
+  }
+  const max=Math.max(...list.map(x=>Number(x.score||0)), 0.0000001);
+  $('tones').innerHTML=list.map((t,i)=>{
+    const width=(Number(t.score||0)/max)*100;
+    return `<div class="toneRow">
+      <div class="toneLabel">${t.tone_hz} Hz</div>
+      <div class="toneMini"><div style="width:${width}%"></div></div>
+      <div>${Number(t.score||0).toExponential(2)}</div>
+    </div>`;
+  }).join('');
+}
+
+const MORSE_MAP={
+  A:'.-',B:'-...',C:'-.-.',D:'-..',E:'.',F:'..-.',G:'--.',H:'....',I:'..',J:'.---',
+  K:'-.-',L:'.-..',M:'--',N:'-.',O:'---',P:'.--.',Q:'--.-',R:'.-.',S:'...',T:'-',
+  U:'..-',V:'...-',W:'.--',X:'-..-',Y:'-.--',Z:'--..',
+  1:'.----',2:'..---',3:'...--',4:'....-',5:'.....',6:'-....',7:'--...',8:'---..',9:'----.',0:'-----',
+  '.':'.-.-.-', ',':'--..--', '?':'..--..', '/':'-..-.', '=':'-...-', '+':'.-.-.', '-':'-....-'
+};
+function showControlTab(name){
+  const settings=name==='settings';
+  const generator=name==='generator';
+  const network=name==='network';
+
+  $('tabSettings')?.classList.toggle('active',settings);
+  $('tabGenerator')?.classList.toggle('active',generator);
+  $('tabNetwork')?.classList.toggle('active',network);
+
+  $('tabSettingsBtn')?.classList.toggle('active',settings);
+  $('tabGeneratorBtn')?.classList.toggle('active',generator);
+  $('tabNetworkBtn')?.classList.toggle('active',network);
+
+  if(network) loadNetworkStatus();
+}
+
+function setPlaybackMode(mode){
+  if(mode!=='sound'){
+    $('settingsMsg').textContent='Only Sound playback is active on this hardware today.';
+    return;
+  }
+  $('cwPlaybackMode').value='sound';
+  $('playbackSound')?.classList.add('active');
+  $('playbackLight')?.classList.remove('active');
+  $('playbackVibrate')?.classList.remove('active');
+}
+function toggleTrainerAdvanced(){
+  const show=$('cwAdvancedToggle')?.value==='on';
+  $('advancedTrainer')?.classList.toggle('active',show);
+}
+function setTrainerPreset(text){
+  $('cwText').value=text;
+  updateCwPreview();
+}
+
+function updateCwPreview(){
+  const src=($('cwText')?.value||'').toUpperCase().trim();
+  const out=[];
+  for(const word of src.split(/\s+/)){
+    const letters=[];
+    for(const ch of word){
+      if(MORSE_MAP[ch]) letters.push(MORSE_MAP[ch]);
+    }
+    if(letters.length) out.push(letters.join(' '));
+  }
+  if($('cwPreview')) $('cwPreview').textContent=out.join('   ') || '...';
+}
 
 
-def create_app(state, config: Dict) -> Flask:
+function updateToneModeHelp(){
+  const mode=$('setToneMode')?.value || 'session_auto';
+  const el=$('toneModeHelp');
+  if(!el) return;
+
+  if(mode==='session_auto'){
+    el.textContent='Full auto scans for the CW tone at the start of a session, then locks it. Best default for live radio.';
+  }else if(mode==='auto'){
+    el.textContent='Continuous auto keeps following the strongest tone live. Useful for testing, but may jump if noise or harmonics are stronger.';
+  }else{
+    el.textContent='Manual fixed tone uses the selected tone only. Best for learning, controlled tests, and training.';
+  }
+}
+
+async function loadSettings(){
+  try{
+    const r=await fetch('/api/settings?ts='+Date.now(),{cache:'no-store'});
+    const s=await r.json();
+    const cfg=s.config||{};
+    $('setToneMode').value=cfg.tone_mode||'session_auto';
+    updateToneModeHelp();
+    $('setTone').value=cfg.target_tone_hz||700;
+    $('setWpm').value=cfg.initial_wpm||18.75;
+    $('setInputLevel').value=cfg.input_capture_percent ?? 70;
+    $('setInputLevelVal').textContent=$('setInputLevel').value;
+    if ($('setAudioFilterMode')) {
+      $('setAudioFilterMode').value = (cfg.audio_filter_enabled === false) ? 'off' : (cfg.audio_filter_mode || 'wide');
+    }
+    if ($('setAudioFilterBandwidth')) {
+      $('setAudioFilterBandwidth').value = cfg.audio_filter_bandwidth_hz ?? 300;
+    }
+    $('setLcdBrightness').value=cfg.lcd_brightness_percent ?? 100;
+    $('setLcdBrightnessVal').textContent=$('setLcdBrightness').value;
+    $('setTftIdleEnabled').value=String(cfg.tft_screen_timeout_enabled !== false);
+    $('setTftIdleSeconds').value=cfg.tft_screen_timeout_sec ?? 300;
+    $('setOutputDevice').value=cfg.audio_output_device||'plughw:2,0';
+    updateFilterToggleButton(cfg);
+    $('cwTone').value=cfg.cw_generator_tone_hz || cfg.target_tone_hz || 700;
+    $('cwWpm').value=cfg.cw_generator_wpm || cfg.initial_wpm || 18.75;
+    $('cwFarnsworth').value=cfg.cw_generator_farnsworth_wpm || cfg.cw_generator_wpm || cfg.initial_wpm || 18.75;
+    $('cwKeyProfile').value=cfg.cw_generator_key_profile || 'computer';
+    $('cwStartDelay').value=cfg.cw_generator_start_delay_ms ?? 0;
+    $('cwEndGap').value=cfg.cw_generator_end_gap_ms ?? 1000;
+    $('cwPlaybackMode').value=cfg.cw_generator_playback_mode || 'sound';
+    $('cwVolume').value=cfg.cw_generator_volume_percent ?? 35;
+    $('cwVolumeVal').textContent=$('cwVolume').value;
+    updateCwPreview();
+  }catch(e){
+    $('settingsMsg').textContent='Settings load failed: '+e;
+  }
+}
+$('setToneMode')?.addEventListener('change',updateToneModeHelp);
+$('setInputLevel')?.addEventListener('input',()=>{$('setInputLevelVal').textContent=$('setInputLevel').value});
+$('setLcdBrightness')?.addEventListener('input',()=>{$('setLcdBrightnessVal').textContent=$('setLcdBrightness').value});
+$('cwVolume')?.addEventListener('input',()=>{$('cwVolumeVal').textContent=$('cwVolume').value});
+$('cwText')?.addEventListener('input',updateCwPreview);
+$('cwTone')?.addEventListener('input',updateCwPreview);
+$('cwWpm')?.addEventListener('input',updateCwPreview);
+$('cwFarnsworth')?.addEventListener('input',updateCwPreview);
+$('cwKeyProfile')?.addEventListener('change',updateCwPreview);
+$('cwAdvancedToggle')?.addEventListener('change',toggleTrainerAdvanced);
+
+async function saveSettings(){
+  const payload={
+    tone_mode:$('setToneMode').value,
+    target_tone_hz:Number($('setTone').value),
+    initial_wpm:Number($('setWpm').value),
+    input_capture_percent:Number($('setInputLevel').value),
+    audio_filter_enabled:$('setAudioFilterMode') ? ($('setAudioFilterMode').value !== 'off') : true,
+    audio_filter_mode:$('setAudioFilterMode') ? $('setAudioFilterMode').value : 'wide',
+    audio_filter_bandwidth_hz:$('setAudioFilterBandwidth') ? Math.max(80,Math.min(1200,Number($('setAudioFilterBandwidth').value||300))) : 300,
+    lcd_brightness_percent:Number($('setLcdBrightness').value),
+    tft_screen_timeout_enabled:$('setTftIdleEnabled').value==='true',
+    tft_screen_timeout_sec:Math.max(15,Math.min(3600,Number($('setTftIdleSeconds').value||300))),
+    tft_screen_timeout_image:'/opt/morse-whisperer-pi/assets/horse_boot_splash.png',
+    audio_output_device:$('setOutputDevice').value,
+    volume_percent:Number($('cwVolume').value),
+    cw_generator_tone_hz:Number($('cwTone').value),
+    cw_generator_wpm:Number($('cwWpm').value),
+    cw_generator_farnsworth_wpm:Number($('cwFarnsworth').value),
+    cw_generator_key_profile:$('cwKeyProfile').value,
+    cw_generator_start_delay_ms:Number($('cwStartDelay').value),
+    cw_generator_end_gap_ms:Number($('cwEndGap').value),
+    cw_generator_playback_mode:$('cwPlaybackMode').value,
+    cw_generator_volume_percent:Number($('cwVolume').value)
+  };
+  const r=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const s=await r.json();
+  $('settingsMsg').textContent=s.ok ? 'Saved. Some settings apply immediately; decoder service restart is not required.' : ('Save failed: '+(s.error||'unknown'));
+  $('settingsState').className='badge '+(s.ok?'good':'bad');
+}
+async function playCw(){
+  const payload={
+    text:$('cwText').value,
+    tone_hz:Number($('cwTone').value),
+    wpm:Number($('cwWpm').value),
+    farnsworth_wpm:Number($('cwFarnsworth').value),
+    key_profile:$('cwKeyProfile').value,
+    start_delay_ms:Number($('cwStartDelay').value),
+    end_gap_ms:Number($('cwEndGap').value),
+    playback_mode:$('cwPlaybackMode').value,
+    output_device:$('setOutputDevice').value,
+    volume_percent:Number($('cwVolume').value)
+  };
+  const r=await fetch('/api/cw/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const s=await r.json();
+  $('settingsMsg').textContent=s.ok ? 'CW generator playing.' : ('CW play failed: '+(s.error||'unknown'));
+  $('settingsState').className='badge '+(s.ok?'good':'bad');
+}
+async function stopCw(){
+  const r=await fetch('/api/cw/stop',{method:'POST'});
+  const s=await r.json();
+  $('settingsMsg').textContent=s.ok ? 'CW generator stopped.' : ('Stop failed: '+(s.error||'unknown'));
+}
+async function selfTestCw(){
+  const payload={
+    text:$('cwText').value,
+    tone_hz:Number($('cwTone').value),
+    wpm:Number($('cwWpm').value),
+    farnsworth_wpm:Number($('cwFarnsworth')?.value || $('cwWpm').value),
+    key_profile:$('cwKeyProfile')?.value || 'computer',
+    start_delay_ms:Number($('cwStartDelay')?.value || 0),
+    end_gap_ms:Number($('cwEndGap')?.value || 1000),
+    volume_percent:Number($('cwVolume').value)
+  };
+
+  const box=$('selfTestResult');
+  box.className='selfTestResult';
+  box.textContent='Generating CW and running decoder self-test...';
+
+  const r=await fetch('/api/cw/selftest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const s=await r.json();
+
+  if(!s.ok){
+    box.className='selfTestResult bad';
+    box.textContent='Self-test failed: '+(s.error||'unknown');
+    return;
+  }
+
+  const cls=s.status==='PASS' ? 'good' : (s.status==='CLOSE' ? 'warn' : 'bad');
+  box.className='selfTestResult '+cls;
+  box.innerHTML=
+    '<b>Self-test: '+s.status+'</b>'+
+    '<div class="selfTestMono">'+
+    'Expected: '+(s.expected||'')+'\\n'+
+    'Decoded : '+(s.decoded||'')+'\\n'+
+    'Raw     : '+(s.raw||'')+'\\n'+
+    'Tone    : '+s.tone_hz+' Hz\\n'+
+    'WPM     : '+Number(s.wpm||0).toFixed(2)+' / Farnsworth '+Number(s.farnsworth_wpm||0).toFixed(2)+'\\n'+
+    'SNR     : '+Number(s.snr_db||0).toFixed(1)+' dB\\n'+
+    'Conf    : '+Number(s.confidence||0).toFixed(2)+
+    '</div>';
+
+  $('settingsMsg').textContent='CW self-test complete: '+s.status;
+}
+async function resetDefaults(){
+  if(!confirm('Reset Morse Whisperer settings to safe defaults?')) return;
+  const r=await fetch('/api/settings/defaults',{method:'POST'});
+  const s=await r.json();
+  $('settingsMsg').textContent=s.ok ? 'Defaults restored and saved.' : ('Reset failed: '+(s.error||'unknown'));
+  await loadSettings();
+}
+
+function renderConnections(conns){
+  if(!conns || !conns.length){
+    $('netConnections').textContent='No saved connections reported.';
+    return;
+  }
+  $('netConnections').innerHTML=conns.map(c=>`
+    <div class="networkRow">
+      <b>${esc(c.name||'--')}</b>
+      <span>${esc(c.type||'--')}</span>
+      <span>${esc(c.device||'--')}</span>
+    </div>
+  `).join('');
+}
+
+async function loadNetworkStatus(){
+  try{
+    const r=await fetch('/api/network/status?ts='+Date.now(),{cache:'no-store'});
+    const s=await r.json();
+
+    if(!s.ok){
+      $('settingsMsg').textContent='Network status failed: '+(s.error||'unknown');
+      return;
+    }
+
+    $('netHostname').textContent=s.hostname||'--';
+    $('netIps').textContent=(s.ip_addresses||[]).join(' ') || '--';
+    $('netDefaultRoute').textContent=s.default_route ? 'yes' : 'no';
+    $('netWifiDevice').textContent=s.wifi_device||'--';
+    $('netActiveWifi').textContent=s.active_wifi_connection||'--';
+    $('netHotspotActive').textContent=s.hotspot_active ? 'yes' : 'no';
+    $('netFallbackService').textContent=(s.fallback_service_active||'unknown')+' / '+(s.fallback_service_enabled||'unknown');
+    $('netSetupSsid').textContent=s.setup_ssid||'The Morse Whisperer';
+    $('netSetupUrl').textContent='http://'+(s.setup_ip||'10.42.0.1')+':8080';
+
+    renderConnections(s.connections||[]);
+    $('settingsMsg').textContent='Network status refreshed.';
+  }catch(e){
+    $('settingsMsg').textContent='Network status failed: '+e;
+  }
+}
+
+function renderWifiNetworks(nets){
+  const list=$('wifiScanList');
+  if(!list) return;
+  list.innerHTML='';
+
+  nets.forEach((n)=>{
+    const row=document.createElement('div');
+    row.className='networkRow';
+
+    const ssid=n.ssid || '';
+    const label=document.createElement('b');
+    label.textContent=(n.in_use ? '★ ' : '') + (ssid || '(hidden)');
+
+    const sig=document.createElement('span');
+    sig.textContent=Number(n.signal||0)+'%';
+
+    const sec=document.createElement('span');
+    sec.textContent=n.security || 'open';
+
+    const chan=document.createElement('span');
+    chan.textContent='ch '+(n.channel || '--');
+
+    const action=document.createElement('span');
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='networkUseBtn';
+    btn.textContent='Connect';
+    btn.dataset.ssid=ssid;
+    btn.addEventListener('click',()=>{
+      const target=$('netConnectSsid');
+      if(!target) return;
+      target.value=btn.dataset.ssid || '';
+      if(!target.value){
+        $('settingsMsg').textContent='Hidden network selected. Type the SSID manually.';
+        target.focus();
+        return;
+      }
+      $('settingsMsg').textContent='Selected Wi-Fi SSID: '+target.value;
+      const pass=$('netConnectPassword');
+      if(pass) pass.focus();
+    });
+    action.appendChild(btn);
+
+    row.appendChild(label);
+    row.appendChild(sig);
+    row.appendChild(sec);
+    row.appendChild(chan);
+    row.appendChild(action);
+    list.appendChild(row);
+  });
+}
+
+async function connectWifiManual(){
+  const ssid=($('netConnectSsid')?.value||'').trim();
+  const password=$('netConnectPassword')?.value||'';
+
+  if(!ssid){
+    $('settingsMsg').textContent='Enter a Wi-Fi SSID first.';
+    return;
+  }
+
+  const warning=
+    'Connect this Pi to Wi-Fi network "'+ssid+'"?\n\n'+
+    'This may disconnect the current browser or SSH session if the Pi changes networks.\n\n'+
+    'Continue?';
+
+  if(!confirm(warning)){
+    $('settingsMsg').textContent='Wi-Fi connect cancelled.';
+    return;
+  }
+
+  $('settingsMsg').textContent='Connecting to Wi-Fi "'+ssid+'"...';
+
+  try{
+    const r=await fetch('/api/network/connect',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ssid:ssid,password:password})
+    });
+
+    const s=await r.json();
+
+    if(!s.ok){
+      $('settingsMsg').textContent='Wi-Fi connect failed: '+(s.error||'unknown')+(s.rollback_attempted?' Rollback was attempted.':'');
+      return;
+    }
+
+    $('settingsMsg').textContent='Connected to '+ssid+'. IP address(es): '+((s.ip_addresses||[]).join(' ')||'checking...');
+    setTimeout(loadNetworkStatus,3000);
+  }catch(e){
+    $('settingsMsg').textContent='Connection request sent, but browser lost contact. Check the Pi IP address or reconnect to the correct network.';
+  }
+}
+
+async function scanWifi(){
+  $('wifiScanList').textContent='Scanning…';
+  try{
+    const r=await fetch('/api/network/scan?ts='+Date.now(),{cache:'no-store'});
+    const s=await r.json();
+
+    if(!s.ok){
+      $('wifiScanList').textContent='Scan failed: '+(s.error||'unknown');
+      return;
+    }
+
+    const nets=s.networks||[];
+    if(!nets.length){
+      $('wifiScanList').textContent='No networks found.';
+      return;
+    }
+
+    renderWifiNetworks(nets);
+    $('settingsMsg').textContent='Wi-Fi scan complete.';
+  }catch(e){
+    $('wifiScanList').textContent='Scan failed: '+e;
+  }
+}
+
+async function tick(){
+  try{
+    const r=await fetch('/api/snapshot?ts='+Date.now(),{cache:'no-store'});
+    const s=await r.json();
+    const d=s.decode||{}, q=s.quality||{}, a=s.audio||{}, cfg=s.config||{};
+    updateFilterToggleButton(cfg);
+
+    const copy=esc(d.stable_copy || d.copy || '').trim();
+    const raw=esc(d.stable_raw || d.raw || '').trim();
+
+    $('copy').textContent=copy || 'Waiting for CW…';
+    $('copy').classList.toggle('empty', !copy);
+    $('raw').textContent=raw || 'No accepted raw copy yet.';
+
+    const age=s.updated_at ? ((Date.now()/1000)-s.updated_at) : 0;
+    $('age').textContent=num(age,1)+'s ago';
+    $('mode').textContent=s.mode||'unknown';
+    $('device').textContent=((a.backend||'')+':'+(a.device||'')).replace(/^:/,'--');
+    $('squelch').textContent=q.squelch_open ? 'OPEN' : 'closed';
+
+    const goodMode=(s.mode==='running');
+    $('modeDot').className='dot '+(goodMode?'good':'warn');
+
+    const conf=Number(q.confidence||0);
+    const snr=Number(q.snr_db||0);
+    const cls=reasonClass(q.reason,conf,snr);
+    $('acceptedBadge').className='badge '+(copy?'good':'');
+    $('acceptedBadge').textContent=copy?'accepted / held':'waiting';
+
+    const toneLock=q.live_tone_lock_hz || q.selected_tone_hz || '--';
+    $('toneLock').textContent=toneLock;
+    $('toneReason').textContent=q.live_tone_lock_reason || q.reason || 'Waiting for signal';
+    $('toneModeBadge').textContent=(q.live_mode||cfg.tone_mode||'--').replaceAll('_',' ');
+    $('toneModeBadge').className='badge '+(q.squelch_open?'good':'');
+
+    setBar('snrBar',pct(snr,-5,45), snr<6?'bad':snr<12?'warn':'');
+    setBar('confBar',pct(conf,0,1), conf<0.45?'bad':conf<0.85?'warn':'');
+    setBar('rmsBar',pct(Number(a.rms||0),0,0.09));
+    setBar('peakBar',pct(Number(a.peak||0),0,0.6), Number(a.clipping_percent||0)>0?'bad':'');
+
+    $('snrVal').textContent=num(snr,1)+' dB';
+    $('confVal').textContent=num(conf,2);
+    $('rmsVal').textContent=num(a.rms,3);
+    $('peakVal').textContent=num(a.peak,3);
+
+    const level=a.level_status||'--';
+    $('levelBadge').className='badge '+levelClass(level);
+    $('levelBadge').textContent='Audio '+level;
+
+    $('selectedTone').textContent=(q.selected_tone_hz||'--')+' Hz';
+    $('targetTone').textContent=(q.target_tone_hz||cfg.target_tone_hz||'--')+' Hz';
+    $('wpm').textContent=num(q.wpm,1);
+    $('reason').innerHTML=`<span class="badge ${cls}">${q.reason||'--'}</span>`;
+    $('session').textContent=`${num(q.live_session_seconds,1)}s · quiet ${num(q.quiet_for_sec,1)}s`;
+    $('buffer').textContent=`${num(a.buffered_seconds,1)}s · trims ${a.overruns||0}`;
+
+    updateToneRanking(q.tone_ranking);
+
+    const cand=(d.candidate_copy || d.candidate_raw || '').trim();
+    $('candidate').textContent=cand || 'No rejected candidate shown.';
+
+    $('log').textContent=(s.status||[])
+      .slice(-14)
+      .map(x=>new Date(x.time*1000).toLocaleTimeString()+'  '+x.message)
+      .join('\n') || 'No status messages yet.';
+  }catch(e){
+    $('mode').textContent='offline';
+    $('modeDot').className='dot bad';
+    $('log').textContent='UI update failed: '+e;
+  }
+}
+setInterval(tick,800);
+tick();
+loadSettings();
+</script>
+
+
+
+
+
+
+
+<script>
+/* MW_CENTER_SCALE_WATERMARK_V2 */
+(function(){
+  function installSplashWatermark(){
+    const oldIds = ['mwHorseWatermark', 'mwHorseWatermarkGlow'];
+    for (const id of oldIds) {
+      const el = document.getElementById(id);
+      if (el) el.remove();
+    }
+
+    if (document.getElementById('mwSplashWatermark')) return;
+
+    const wm = document.createElement('div');
+    wm.id = 'mwSplashWatermark';
+    wm.setAttribute('aria-hidden', 'true');
+    document.body.prepend(wm);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installSplashWatermark);
+  } else {
+    installSplashWatermark();
+  }
+})();
+</script>
+
+</body>
+</html>
+"""
+
+
+def no_cache_response(body: str, mimetype: str) -> Response:
+    return Response(
+        body,
+        mimetype=mimetype,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
+def create_app(state, ring, config: Dict) -> Flask:
     app = Flask(__name__)
 
-    @app.route('/')
+    @app.route("/")
     def index():
-        return HTML
+        return no_cache_response(HTML, "text/html")
 
-    @app.route('/assets/<path:filename>')
-    def assets(filename):
-        return send_from_directory(str(APP_DIR / 'assets'), filename)
+    @app.route("/api/decode/history")
+    def decode_history():
+        snap = state.snapshot()
+        return jsonify({
+            "ok": True,
+            "history": snap.get("decode_history", []),
+        })
 
-    @app.route('/api/snapshot')
+
+    @app.route("/assets/<path:filename>")
+    def mw_assets(filename):
+        return send_from_directory("/opt/morse-whisperer-pi/assets", filename)
+
+
+    @app.route("/api/snapshot")
     def snapshot():
-        return jsonify(state.snapshot())
+        resp = jsonify(state.snapshot())
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
-    @app.route('/api/settings', methods=['GET', 'POST'])
-    def settings():
-        if request.method == 'GET':
-            return jsonify({'ok': True, 'config': config})
-        data = request.get_json(force=True) or {}
-        allow = {'tone_mode':str,'target_tone_hz':int,'initial_wpm':float,'input_capture_percent':int,'lcd_brightness_percent':int,'tft_screen_timeout_enabled':bool,'tft_screen_timeout_sec':int,'audio_output_device':str,'cw_generator_tone_hz':int,'cw_generator_wpm':float,'cw_generator_volume_percent':int}
-        changed = {}
-        for k, typ in allow.items():
-            if k in data:
+    @app.route("/api/reset", methods=["POST"])
+    def reset():
+        now = time.time()
+
+        # Clear the web-facing ring immediately.
+        ring.clear()
+
+        snap = state.snapshot()
+        dec = snap.get("decode", {})
+        dec.update({
+            "raw": "",
+            "copy": "",
+            "stable_copy": "",
+            "stable_raw": "",
+            "candidate_raw": "",
+            "candidate_copy": "",
+            "events": [],
+            "accepted": False,
+            "live_mode": "reset",
+        })
+
+        control = snap.get("control", {})
+        if not isinstance(control, dict):
+            control = {}
+        control["reset_requested_at"] = now
+        control["reset_counter"] = int(control.get("reset_counter", 0)) + 1
+
+        q = snap.get("quality", {})
+        if not isinstance(q, dict):
+            q = {}
+        q.update({
+            "reason": "reset_requested",
+            "squelch_open": False,
+            "live_session_seconds": 0,
+            "live_session_samples": 0,
+            "live_tone_lock_hz": None,
+            "live_tone_lock_reason": "reset",
+        })
+
+        state.update(decode=dec, quality=q, control=control, mode="reset")
+        state.append_status("Reset requested from web UI")
+        return jsonify({"ok": True, "reset_counter": control["reset_counter"], "reset_requested_at": now})
+
+    @app.route("/api/tone/scan", methods=["POST"])
+    def tone_scan():
+        now = time.time()
+
+        snap = state.snapshot()
+        control = snap.get("control", {})
+        if not isinstance(control, dict):
+            control = {}
+
+        control["tone_scan_requested_at"] = now
+        control["tone_scan_counter"] = int(control.get("tone_scan_counter", 0)) + 1
+
+        q = snap.get("quality", {})
+        if not isinstance(q, dict):
+            q = {}
+
+        q.update({
+            "live_tone_lock_hz": None,
+            "live_tone_lock_reason": "manual_scan_requested",
+            "reason": "manual_tone_scan_requested",
+        })
+
+        state.update(control=control, quality=q)
+        state.append_status("Manual tone scan requested")
+
+        return jsonify({
+            "ok": True,
+            "tone_scan_counter": control["tone_scan_counter"],
+            "tone_scan_requested_at": now,
+        })
+
+    @app.route("/api/tft/next", methods=["POST"])
+    def tft_next():
+        now = time.time()
+        snap = state.snapshot()
+        control = snap.get("control", {})
+        if not isinstance(control, dict):
+            control = {}
+        control["tft_next_page_requested_at"] = now
+        control["tft_next_page_counter"] = int(control.get("tft_next_page_counter", 0)) + 1
+        state.update(control=control)
+        state.append_status("TFT next page requested")
+        return jsonify({"ok": True, "tft_next_page_counter": control["tft_next_page_counter"]})
+
+    @app.route("/api/tft/freeze", methods=["POST"])
+    def tft_freeze():
+        now = time.time()
+        snap = state.snapshot()
+        control = snap.get("control", {})
+        if not isinstance(control, dict):
+            control = {}
+        control["tft_freeze_requested_at"] = now
+        control["tft_freeze_counter"] = int(control.get("tft_freeze_counter", 0)) + 1
+        state.update(control=control)
+        state.append_status("TFT freeze toggle requested")
+        return jsonify({"ok": True, "tft_freeze_counter": control["tft_freeze_counter"]})
+
+
+    # MW_FILTER_BUTTON_API_V1
+    FILTER_MODE_ORDER = ["off", "wide", "narrow", "custom"]
+
+    def filter_mode_summary():
+        enabled = bool(config.get("audio_filter_enabled", True))
+        mode = str(config.get("audio_filter_mode", "wide") or "wide").lower()
+
+        if not enabled:
+            mode = "off"
+
+        if mode not in FILTER_MODE_ORDER:
+            mode = "wide"
+
+        if mode == "off":
+            enabled = False
+        else:
+            enabled = True
+
+        return {
+            "ok": True,
+            "audio_filter_enabled": enabled,
+            "audio_filter_mode": mode,
+            "audio_filter_wide_hz": int(config.get("audio_filter_wide_hz", 500)),
+            "audio_filter_narrow_hz": int(config.get("audio_filter_narrow_hz", 220)),
+            "audio_filter_bandwidth_hz": int(config.get("audio_filter_bandwidth_hz", 300)),
+            "audio_filter_max_hz": int(config.get("audio_filter_max_hz", 1200)),
+        }
+
+    def set_filter_mode(mode: str):
+        mode = str(mode or "wide").lower()
+        if mode not in FILTER_MODE_ORDER:
+            mode = "wide"
+
+        config["audio_filter_enabled"] = mode != "off"
+        config["audio_filter_mode"] = mode
+        config.setdefault("audio_filter_wide_hz", 500)
+        config.setdefault("audio_filter_narrow_hz", 220)
+        config.setdefault("audio_filter_bandwidth_hz", 300)
+        config.setdefault("audio_filter_max_hz", 1200)
+
+        save_config(config)
+        state.update(config=config)
+
+        snap = state.snapshot()
+        control = snap.get("control", {})
+        if not isinstance(control, dict):
+            control = {}
+        control["bandwidth_filter_changed_at"] = time.time()
+        control["bandwidth_filter_counter"] = int(control.get("bandwidth_filter_counter", 0)) + 1
+        control["bandwidth_filter_mode"] = mode
+        state.update(control=control)
+
+        state.append_status(f"Bandwidth filter set to {mode}")
+        data = filter_mode_summary()
+        data["counter"] = control["bandwidth_filter_counter"]
+        return data
+
+    def step_filter_mode(direction: int):
+        current = filter_mode_summary()["audio_filter_mode"]
+        try:
+            idx = FILTER_MODE_ORDER.index(current)
+        except ValueError:
+            idx = 1
+
+        idx = (idx + int(direction)) % len(FILTER_MODE_ORDER)
+        return set_filter_mode(FILTER_MODE_ORDER[idx])
+
+    @app.route("/api/filter/status")
+    def filter_status():
+        return jsonify(filter_mode_summary())
+
+    @app.route("/api/filter/up", methods=["POST"])
+    def filter_up():
+        return jsonify(step_filter_mode(+1))
+
+    @app.route("/api/filter/down", methods=["POST"])
+    def filter_down():
+        return jsonify(step_filter_mode(-1))
+
+    @app.route("/api/filter/set", methods=["POST"])
+    def filter_set():
+        data = request.get_json(silent=True) or {}
+        return jsonify(set_filter_mode(str(data.get("mode", "wide"))))
+
+
+    SETTINGS_ALLOWLIST = {
+        "tone_mode": str,
+        "target_tone_hz": int,
+        "initial_wpm": float,
+        "input_capture_percent": int,
+        "audio_filter_enabled": bool,
+        "audio_filter_mode": str,
+        "audio_filter_bandwidth_hz": int,
+        "audio_filter_wide_hz": int,
+        "audio_filter_narrow_hz": int,
+        "audio_filter_max_hz": int,
+        "lcd_brightness_percent": int,
+        "tft_screen_timeout_enabled": bool,
+        "tft_screen_timeout_sec": int,
+        "tft_screen_timeout_image": str,
+        "audio_output_device": str,
+        "cw_generator_tone_hz": int,
+        "cw_generator_wpm": float,
+        "cw_generator_farnsworth_wpm": float,
+        "cw_generator_key_profile": str,
+        "cw_generator_start_delay_ms": int,
+        "cw_generator_end_gap_ms": int,
+        "cw_generator_playback_mode": str,
+        "cw_generator_volume_percent": int,
+    }
+
+    SAFE_DEFAULTS = {
+        "target_tone_hz": 700,
+        "tone_mode": "session_auto",
+        "initial_wpm": 18.75,
+        "threshold_bias": 0.48,
+        "window_ms": 12,
+        "hop_ms": 8,
+        "decode_window_sec": 10,
+        "char_gap_units": 2.25,
+        "word_gap_units": 6.0,
+        "adaptive_word_gap_enabled": False,
+        "audio_output_device": "plughw:2,0",
+        "input_capture_percent": 70,
+        "audio_filter_enabled": True,
+        "audio_filter_mode": "wide",
+        "audio_filter_wide_hz": 500,
+        "audio_filter_narrow_hz": 220,
+        "audio_filter_bandwidth_hz": 300,
+        "audio_filter_max_hz": 1200,
+        "lcd_brightness_percent": 100,
+        "tft_screen_timeout_enabled": True,
+        "tft_screen_timeout_sec": 300,
+        "tft_screen_timeout_image": "/opt/morse-whisperer-pi/assets/horse_boot_splash.png",
+        "cw_generator_tone_hz": 700,
+        "cw_generator_wpm": 18.75,
+        "cw_generator_farnsworth_wpm": 18.75,
+        "cw_generator_key_profile": "computer",
+        "cw_generator_start_delay_ms": 0,
+        "cw_generator_end_gap_ms": 1000,
+        "cw_generator_playback_mode": "sound",
+        "cw_generator_volume_percent": 35,
+        "splash_enabled": False,
+        "systemd_splash_enabled": True,
+        "safe_splash_seconds": 3.2,
+    }
+
+    cw_process = {"proc": None}
+
+    def clamp_num(value, lo, hi, default):
+        try:
+            v = float(value)
+        except Exception:
+            return default
+        return max(lo, min(hi, v))
+
+    def apply_capture_level(percent: int) -> str:
+        percent = int(clamp_num(percent, 0, 100, 70))
+        dev = str(config.get("audio_device", "") or "")
+        card = None
+        if dev.startswith("plughw:"):
+            try:
+                card = dev.split(":", 1)[1].split(",", 1)[0]
+            except Exception:
+                card = None
+        cmds = []
+        if card:
+            cmds.append(["amixer", "-c", str(card), "sset", "Capture", f"{percent}%"])
+            cmds.append(["amixer", "-c", str(card), "sset", "Mic", f"{percent}%"])
+        cmds.append(["amixer", "sset", "Capture", f"{percent}%"])
+        errors = []
+        for cmd in cmds:
+            try:
+                subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=3)
+                return "applied"
+            except Exception as e:
+                errors.append(str(e))
+        return "saved_only"
+
+    def apply_lcd_brightness(percent: int) -> str:
+        percent = int(clamp_num(percent, 5, 100, 100))
+        roots = [Path("/sys/class/backlight"), Path("/sys/class/leds")]
+        for root in roots:
+            if not root.exists():
+                continue
+            for item in root.iterdir():
+                brightness = item / "brightness"
+                max_brightness = item / "max_brightness"
+                if brightness.exists() and os.access(brightness, os.W_OK):
+                    try:
+                        maxv = int(max_brightness.read_text().strip()) if max_brightness.exists() else 255
+                        val = max(1, int(maxv * percent / 100.0))
+                        brightness.write_text(str(val))
+                        return f"applied:{item.name}"
+                    except Exception:
+                        pass
+        return "saved_only"
+
+    MORSE_GEN = {
+        "A": ".-", "B": "-...", "C": "-.-.", "D": "-..", "E": ".", "F": "..-.",
+        "G": "--.", "H": "....", "I": "..", "J": ".---", "K": "-.-", "L": ".-..",
+        "M": "--", "N": "-.", "O": "---", "P": ".--.", "Q": "--.-", "R": ".-.",
+        "S": "...", "T": "-", "U": "..-", "V": "...-", "W": ".--", "X": "-..-",
+        "Y": "-.--", "Z": "--..",
+        "1": ".----", "2": "..---", "3": "...--", "4": "....-", "5": ".....",
+        "6": "-....", "7": "--...", "8": "---..", "9": "----.", "0": "-----",
+        ".": ".-.-.-", ",": "--..--", "?": "..--..", "/": "-..-.", "=": "-...-",
+        "+": ".-.-.", "-": "-....-", "(": "-.--.", ")": "-.--.-",
+    }
+
+    def write_cw_wav(
+        path: Path,
+        text_value: str,
+        tone_hz: int,
+        wpm: float,
+        volume: float = 0.35,
+        farnsworth_wpm: float | None = None,
+        key_profile: str = "computer",
+        start_delay_ms: int = 0,
+        end_gap_ms: int = 1000,
+    ):
+        sr = 8000
+        char_wpm = clamp_num(wpm, 3, 40, 18.75)
+        overall_wpm = clamp_num(farnsworth_wpm if farnsworth_wpm else char_wpm, 3, char_wpm, char_wpm)
+
+        dot = 1.2 / max(1.0, float(char_wpm))
+        gap_dot = 1.2 / max(1.0, float(overall_wpm))
+
+        tone_hz = int(clamp_num(tone_hz, 300, 1200, 700))
+        volume = clamp_num(volume, 0.05, 0.95, 0.35)
+
+        profile = str(key_profile or "computer")
+        profile_map = {
+            "computer": (0.000, 1.00),
+            "paddle_clean": (0.020, 1.00),
+            "paddle_learner": (0.065, 1.02),
+            "bug_light": (0.050, 1.07),
+            "straight_human": (0.085, 1.04),
+        }
+        jitter, weight = profile_map.get(profile, profile_map["computer"])
+        rng = random.Random(time.time())
+
+        samples = []
+
+        def humanise(sec: float, mark: bool = False) -> float:
+            if jitter <= 0:
+                return max(0.0, sec)
+            factor = 1.0 + rng.uniform(-jitter, jitter)
+            if mark:
+                factor *= weight
+            return max(0.0, sec * factor)
+
+        def add_silence(sec):
+            samples.extend([0] * max(0, int(sr * sec)))
+
+        def add_tone(sec):
+            sec = humanise(sec, mark=True)
+            n = max(1, int(sr * sec))
+            fade = max(1, int(sr * 0.004))
+            for i in range(n):
+                env = 1.0
+                if i < fade:
+                    env = i / fade
+                elif i > n - fade:
+                    env = max(0.0, (n - i) / fade)
+                val = int(32767 * volume * env * math.sin(2 * math.pi * tone_hz * (i / sr)))
+                samples.append(val)
+
+        start_delay_ms = int(clamp_num(start_delay_ms, 0, 5000, 0))
+        end_gap_ms = int(clamp_num(end_gap_ms, 0, 5000, 1000))
+
+        if start_delay_ms:
+            add_silence(start_delay_ms / 1000.0)
+
+        clean = " ".join(str(text_value or "").upper().split())[:240]
+        for word_i, word in enumerate(clean.split(" ")):
+            if word_i:
+                add_silence(humanise(gap_dot * 7))
+            for char_i, ch in enumerate(word):
+                code = MORSE_GEN.get(ch)
+                if not code:
+                    continue
+                if char_i:
+                    add_silence(humanise(gap_dot * 3))
+                for elem_i, elem in enumerate(code):
+                    if elem_i:
+                        add_silence(humanise(dot))
+                    add_tone(dot if elem == "." else dot * 3)
+
+        if end_gap_ms:
+            add_silence(end_gap_ms / 1000.0)
+
+        with wave.open(str(path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sr)
+            wf.writeframes(b"".join(struct.pack("<h", int(x)) for x in samples))
+
+
+    def read_wav_mono_float32(path: Path) -> np.ndarray:
+        with wave.open(str(path), "rb") as wf:
+            channels = wf.getnchannels()
+            width = wf.getsampwidth()
+            frames = wf.readframes(wf.getnframes())
+
+        if width != 2:
+            raise ValueError(f"Unsupported WAV sample width: {width}")
+
+        data = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
+        if channels > 1:
+            data = data.reshape(-1, channels)[:, 0]
+        return data.astype(np.float32, copy=False)
+
+    def normalise_compare_text(value: str) -> str:
+        return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+
+    def selftest_status(expected: str, decoded: str) -> str:
+        e = normalise_compare_text(expected)
+        d = normalise_compare_text(decoded)
+
+        if not e and not d:
+            return "PASS"
+        if e == d:
+            return "PASS"
+        if d and (e.startswith(d) or d.startswith(e)):
+            return "CLOSE"
+
+        # Simple overlap score without bringing in extra dependencies.
+        common = 0
+        for a, b in zip(e, d):
+            if a == b:
+                common += 1
+        ratio = common / max(1, len(e))
+        if ratio >= 0.80:
+            return "CLOSE"
+        return "FAIL"
+
+
+    def run_cmd(args, timeout=8):
+        try:
+            cp = subprocess.run(
+                args,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=timeout,
+            )
+            return {
+                "ok": cp.returncode == 0,
+                "returncode": cp.returncode,
+                "stdout": cp.stdout.strip(),
+                "stderr": cp.stderr.strip(),
+            }
+        except Exception as e:
+            return {"ok": False, "returncode": -1, "stdout": "", "stderr": str(e)}
+
+    def nmcli_lines(args, timeout=8):
+        res = run_cmd(["nmcli"] + args, timeout=timeout)
+        if not res["ok"] and not res["stdout"]:
+            return []
+        return [line for line in res["stdout"].splitlines() if line.strip()]
+
+    def parse_nmcli_colon_line(line):
+        parts = []
+        cur = ""
+        esc_next = False
+
+        for ch in str(line):
+            if esc_next:
+                cur += ch
+                esc_next = False
+            elif ch == "\\":
+                esc_next = True
+            elif ch == ":":
+                parts.append(cur)
+                cur = ""
+            else:
+                cur += ch
+
+        parts.append(cur)
+        return parts
+
+    @app.route("/api/network/status")
+    def network_status():
+        try:
+            hostname = run_cmd(["hostname"])["stdout"] or ""
+            ip_line = run_cmd(["hostname", "-I"])["stdout"] or ""
+            ip_addresses = [x for x in ip_line.split() if x]
+
+            default_route = bool(
+                run_cmd(["sh", "-c", "ip route show default | grep -q '^default '"])["ok"]
+            )
+
+            devices = []
+            wifi_device = ""
+
+            for line in nmcli_lines(["-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status"]):
+                parts = parse_nmcli_colon_line(line)
+                while len(parts) < 4:
+                    parts.append("")
+
+                dev = {
+                    "device": parts[0],
+                    "type": parts[1],
+                    "state": parts[2],
+                    "connection": parts[3],
+                }
+                devices.append(dev)
+
+                if dev["type"] == "wifi" and dev["device"] != "p2p-dev-wlan0" and not wifi_device:
+                    wifi_device = dev["device"]
+
+            connections = []
+            active_wifi_connection = ""
+            hotspot_active = False
+
+            for line in nmcli_lines(["-t", "-f", "NAME,TYPE,DEVICE,AUTOCONNECT", "connection", "show"]):
+                parts = parse_nmcli_colon_line(line)
+                while len(parts) < 4:
+                    parts.append("")
+
+                item = {
+                    "name": parts[0],
+                    "type": parts[1],
+                    "device": parts[2],
+                    "autoconnect": parts[3],
+                }
+                connections.append(item)
+
+            for line in nmcli_lines(["-t", "-f", "NAME,DEVICE", "connection", "show", "--active"]):
+                parts = parse_nmcli_colon_line(line)
+                while len(parts) < 2:
+                    parts.append("")
+
+                if parts[1] == wifi_device:
+                    active_wifi_connection = parts[0]
+
+                if parts[0] == "morse-whisperer-setup-hotspot":
+                    hotspot_active = True
+
+            fallback_active = (
+                run_cmd(["systemctl", "is-active", "morse-whisperer-network-fallback.service"])["stdout"]
+                or "unknown"
+            )
+            fallback_enabled = (
+                run_cmd(["systemctl", "is-enabled", "morse-whisperer-network-fallback.service"])["stdout"]
+                or "unknown"
+            )
+
+            return jsonify({
+                "ok": True,
+                "hostname": hostname,
+                "ip_addresses": ip_addresses,
+                "default_route": default_route,
+                "wifi_device": wifi_device,
+                "devices": devices,
+                "connections": connections,
+                "active_wifi_connection": active_wifi_connection,
+                "hotspot_active": hotspot_active,
+                "fallback_service_active": fallback_active,
+                "fallback_service_enabled": fallback_enabled,
+                "setup_ssid": "The Morse Whisperer",
+                "setup_ip": "10.42.0.1",
+            })
+
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+
+    @app.route("/api/network/connect", methods=["POST"])
+    def network_connect():
+        data = request.get_json(silent=True) or {}
+        ssid = str(data.get("ssid") or "").strip()
+        password = str(data.get("password") or "")
+
+        if not ssid:
+            return jsonify({"ok": False, "error": "SSID is required"}), 400
+
+        try:
+            helper = "/opt/morse-whisperer-pi/tools/network_connect_helper.py"
+            payload = json.dumps({
+                "ssid": ssid,
+                "password": password,
+            })
+
+            # NetworkManager authorisation is handled by Polkit.
+            # Do not use sudo here: the service runs with NoNewPrivileges=yes.
+            helper_cmd = [helper]
+
+            cp = subprocess.run(
+                helper_cmd,
+                input=payload,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=75,
+            )
+
+            raw = (cp.stdout or "").strip()
+            if not raw:
+                return jsonify({
+                    "ok": False,
+                    "error": cp.stderr.strip() or "Network helper returned no output",
+                    "returncode": cp.returncode,
+                }), 500
+
+            try:
+                result = json.loads(raw)
+            except Exception:
+                return jsonify({
+                    "ok": False,
+                    "error": "Network helper returned invalid JSON",
+                    "stdout": raw,
+                    "stderr": cp.stderr.strip(),
+                    "returncode": cp.returncode,
+                }), 500
+
+            if result.get("ok"):
                 try:
-                    config[k] = typ(data[k])
-                    changed[k] = config[k]
+                    state.append_status(f"Wi-Fi connect requested: {ssid}")
                 except Exception:
                     pass
+                return jsonify(result)
+
+            return jsonify(result), 500
+
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+
+    @app.route("/api/network/scan")
+    def network_scan():
+        try:
+            # Read-only scan. This does not connect, disconnect, or start hotspot mode.
+            #
+            # The UI shows unique network names like a phone does. If multiple APs
+            # advertise the same SSID, keep the strongest one.
+            lines = nmcli_lines(
+                [
+                    "-t",
+                    "-f",
+                    "IN-USE,SSID,SIGNAL,SECURITY,CHAN,FREQ",
+                    "device",
+                    "wifi",
+                    "list",
+                    "--rescan",
+                    "yes",
+                ],
+                timeout=20,
+            )
+
+            best_by_ssid = {}
+
+            for line in lines:
+                parts = parse_nmcli_colon_line(line)
+                while len(parts) < 6:
+                    parts.append("")
+
+                in_use = parts[0].strip() == "*"
+                ssid = parts[1]
+                signal = parts[2]
+                security = parts[3] or "open"
+                channel = parts[4]
+                freq = parts[5]
+
+                try:
+                    signal_num = int(signal or 0)
+                except Exception:
+                    signal_num = 0
+
+                key = (ssid, security)
+                existing = best_by_ssid.get(key)
+
+                item = {
+                    "in_use": in_use,
+                    "ssid": ssid,
+                    "signal": signal_num,
+                    "security": security,
+                    "channel": channel,
+                    "freq": freq,
+                }
+
+                if existing is None:
+                    best_by_ssid[key] = item
+                elif in_use or signal_num > int(existing.get("signal", 0)):
+                    best_by_ssid[key] = item
+
+            networks = list(best_by_ssid.values())
+            networks.sort(key=lambda x: (not x.get("in_use", False), -x.get("signal", 0), x.get("ssid", "")))
+
+            return jsonify({
+                "ok": True,
+                "networks": networks[:80],
+            })
+
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+
+    @app.route("/api/settings")
+    def get_settings():
+        resp = jsonify({"ok": True, "config": config})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.route("/api/settings", methods=["POST"])
+    def update_settings():
+        data = request.get_json(silent=True) or {}
+        changed = {}
+        for key, caster in SETTINGS_ALLOWLIST.items():
+            if key not in data:
+                continue
+            try:
+                value = caster(data[key])
+            except Exception:
+                continue
+
+            if key in ("target_tone_hz", "cw_generator_tone_hz"):
+                value = int(clamp_num(value, 300, 1200, 700))
+            elif key in ("initial_wpm", "cw_generator_wpm", "cw_generator_farnsworth_wpm"):
+                value = float(clamp_num(value, 3, 45, 18.75))
+            elif key in ("cw_generator_start_delay_ms", "cw_generator_end_gap_ms"):
+                value = int(clamp_num(value, 0, 5000, 0 if key.endswith("start_delay_ms") else 1000))
+            elif key in ("input_capture_percent", "lcd_brightness_percent", "cw_generator_volume_percent"):
+                value = int(clamp_num(value, 0 if key.startswith("input") else 5, 100, 70))
+            elif key == "cw_generator_key_profile" and value not in ("computer", "paddle_clean", "paddle_learner", "bug_light", "straight_human"):
+                value = "computer"
+            elif key == "cw_generator_playback_mode" and value not in ("sound",):
+                value = "sound"
+            elif key == "tone_mode" and value not in ("session_auto", "auto", "fixed"):
+                value = "session_auto"
+            elif key == "audio_filter_mode" and value not in ("off", "wide", "narrow", "custom"):
+                value = "wide"
+            elif key in ("audio_filter_bandwidth_hz", "audio_filter_wide_hz", "audio_filter_narrow_hz", "audio_filter_max_hz"):
+                value = int(clamp_num(value, 80, 1200, 300))
+
+            config[key] = value
+            changed[key] = value
+
+        capture_status = None
+        brightness_status = None
+        if "input_capture_percent" in changed:
+            capture_status = apply_capture_level(int(changed["input_capture_percent"]))
+        if "lcd_brightness_percent" in changed:
+            brightness_status = apply_lcd_brightness(int(changed["lcd_brightness_percent"]))
+
         save_config(config)
-        state.merge(config=config)
-        return jsonify({'ok': True, 'changed': changed})
+        state.update(config=config)
+        state.append_status(f"Settings saved: {', '.join(changed.keys()) or 'none'}")
+        return jsonify({"ok": True, "changed": changed, "capture_status": capture_status, "brightness_status": brightness_status})
 
-    @app.route('/api/reset', methods=['POST'])
-    def reset():
-        state.merge(decode={}, decode_history=[])
-        state.append_status('Manual copy/buffer reset')
-        return jsonify({'ok': True})
+    @app.route("/api/settings/defaults", methods=["POST"])
+    def reset_settings_defaults():
+        config.update(SAFE_DEFAULTS)
+        save_config(config)
+        state.update(config=config)
+        state.append_status("Settings reset to safe defaults")
+        return jsonify({"ok": True, "config": config})
 
-    @app.route('/api/decode/history')
-    def history():
-        return jsonify({'ok': True, 'history': state.snapshot().get('decode_history', [])})
-
-    @app.route('/api/cw/play', methods=['POST'])
+    @app.route("/api/cw/play", methods=["POST"])
     def cw_play():
-        data = request.get_json(force=True) or {}
-        text = str(data.get('text') or 'VVV THE MORSE WHISPERER TEST 73')
-        tone = int(data.get('tone_hz') or config.get('cw_generator_tone_hz') or 700)
-        wpm = float(data.get('wpm') or config.get('cw_generator_wpm') or 18.75)
-        vol = int(data.get('volume_percent') or config.get('cw_generator_volume_percent') or 35)
-        out = str(config.get('audio_output_device') or 'plughw:2,0')
-        wav = _make_cw_wav(text, tone, wpm, vol)
-        subprocess.Popen(['aplay','-q','-D',out,wav])
-        return jsonify({'ok': True, 'device': out, 'text': text})
+        data = request.get_json(silent=True) or {}
+        text_value = str(data.get("text") or "VVV THE MORSE WHISPERER TEST 73")
+        tone_hz = int(clamp_num(data.get("tone_hz", config.get("cw_generator_tone_hz", config.get("target_tone_hz", 700))), 300, 1200, 700))
+        wpm = float(clamp_num(data.get("wpm", config.get("cw_generator_wpm", config.get("initial_wpm", 18.75))), 3, 40, 18.75))
+        farnsworth_wpm = float(clamp_num(data.get("farnsworth_wpm", config.get("cw_generator_farnsworth_wpm", wpm)), 3, wpm, wpm))
+        key_profile = str(data.get("key_profile") or config.get("cw_generator_key_profile") or "computer")
+        if key_profile not in ("computer", "paddle_clean", "paddle_learner", "bug_light", "straight_human"):
+            key_profile = "computer"
+        playback_mode = str(data.get("playback_mode") or config.get("cw_generator_playback_mode") or "sound")
+        if playback_mode != "sound":
+            return jsonify({"ok": False, "error": "Only sound playback is supported on this hardware today."}), 400
+        start_delay_ms = int(clamp_num(data.get("start_delay_ms", config.get("cw_generator_start_delay_ms", 0)), 0, 5000, 0))
+        end_gap_ms = int(clamp_num(data.get("end_gap_ms", config.get("cw_generator_end_gap_ms", 1000)), 0, 5000, 1000))
+        volume = float(clamp_num(data.get("volume_percent", config.get("cw_generator_volume_percent", 35)), 5, 95, 35)) / 100.0
+        output_device = str(data.get("output_device") or config.get("audio_output_device") or "plughw:2,0")
 
-    @app.route('/api/cw/stop', methods=['POST'])
-    def cw_stop():
-        subprocess.run(['pkill','-f','aplay -q -D'], check=False)
-        return jsonify({'ok': True})
+        try:
+            old = cw_process.get("proc")
+            if old and old.poll() is None:
+                old.terminate()
 
-    @app.route('/api/cw/selftest', methods=['POST'])
+            wav_path = Path(tempfile.gettempdir()) / "morse-whisperer-generator.wav"
+            write_cw_wav(
+                wav_path,
+                text_value,
+                tone_hz,
+                wpm,
+                volume=volume,
+                farnsworth_wpm=farnsworth_wpm,
+                key_profile=key_profile,
+                start_delay_ms=start_delay_ms,
+                end_gap_ms=end_gap_ms,
+            )
+
+            proc = subprocess.Popen(
+                ["aplay", "-q", "-D", output_device, str(wav_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            cw_process["proc"] = proc
+            state.append_status(f"CW generator playing {tone_hz} Hz at {wpm:.1f}/{farnsworth_wpm:.1f} WPM via {output_device}")
+            return jsonify({
+                "ok": True,
+                "tone_hz": tone_hz,
+                "wpm": wpm,
+                "farnsworth_wpm": farnsworth_wpm,
+                "key_profile": key_profile,
+                "start_delay_ms": start_delay_ms,
+                "end_gap_ms": end_gap_ms,
+                "output_device": output_device,
+            })
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+
+    @app.route("/api/cw/selftest", methods=["POST"])
     def cw_selftest():
-        data = request.get_json(force=True) or {}
-        text = str(data.get('text') or 'VVV THE MORSE WHISPERER TEST 73')
-        return jsonify({'ok': True, 'input': text, 'note': 'Self-test generation is available. Use Play CW to send audio through the configured USB output.'})
+        data = request.get_json(silent=True) or {}
 
-    @app.route('/api/network/status')
-    def net_status():
-        return jsonify(_run_helper({'action': 'status'}))
+        try:
+            text_value = str(data.get("text") or "VVV THE MORSE WHISPERER TEST 73")
 
-    @app.route('/api/network/scan')
-    def net_scan():
-        return jsonify(_run_helper({'action': 'scan'}))
+            tone_hz = int(clamp_num(
+                data.get("tone_hz", config.get("cw_generator_tone_hz", config.get("target_tone_hz", 700))),
+                300,
+                1200,
+                700,
+            ))
 
-    @app.route('/api/network/connect', methods=['POST'])
-    def net_connect():
-        data = request.get_json(force=True) or {}
-        return jsonify(_run_helper({'action': 'connect', 'ssid': data.get('ssid',''), 'psk': data.get('psk','')}))
+            wpm = float(clamp_num(
+                data.get("wpm", config.get("cw_generator_wpm", config.get("initial_wpm", 18.75))),
+                3,
+                40,
+                18.75,
+            ))
+
+            farnsworth_wpm = float(clamp_num(
+                data.get("farnsworth_wpm", config.get("cw_generator_farnsworth_wpm", wpm)),
+                3,
+                wpm,
+                wpm,
+            ))
+
+            key_profile = str(data.get("key_profile") or config.get("cw_generator_key_profile") or "computer")
+            if key_profile not in ("computer", "paddle_clean", "paddle_learner", "bug_light", "straight_human"):
+                key_profile = "computer"
+
+            start_delay_ms = int(clamp_num(
+                data.get("start_delay_ms", config.get("cw_generator_start_delay_ms", 0)),
+                0,
+                5000,
+                0,
+            ))
+
+            end_gap_ms = int(clamp_num(
+                data.get("end_gap_ms", config.get("cw_generator_end_gap_ms", 1000)),
+                0,
+                5000,
+                1000,
+            ))
+
+            volume = float(clamp_num(
+                data.get("volume_percent", config.get("cw_generator_volume_percent", 35)),
+                5,
+                95,
+                35,
+            )) / 100.0
+
+            wav_path = Path(tempfile.gettempdir()) / "morse-whisperer-selftest.wav"
+
+            write_cw_wav(
+                wav_path,
+                text_value,
+                tone_hz,
+                wpm,
+                volume=volume,
+                farnsworth_wpm=farnsworth_wpm,
+                key_profile=key_profile,
+                start_delay_ms=start_delay_ms,
+                end_gap_ms=end_gap_ms,
+            )
+
+            samples = read_wav_mono_float32(wav_path)
+
+            test_cfg = dict(config)
+            test_cfg["tone_mode"] = "fixed"
+            test_cfg["target_tone_hz"] = tone_hz
+            test_cfg["initial_wpm"] = wpm
+
+            result = analyse_samples(samples, test_cfg)
+            status = selftest_status(text_value, result.copy)
+
+            state.append_status(
+                f"CW self-test {status}: {tone_hz} Hz {wpm:.1f}/{farnsworth_wpm:.1f} WPM"
+            )
+
+            selftest_result = {
+                "ok": True,
+                "status": status,
+                "expected": text_value.upper(),
+                "decoded": result.copy,
+                "raw": result.raw,
+                "tone_hz": tone_hz,
+                "wpm": wpm,
+                "farnsworth_wpm": farnsworth_wpm,
+                "key_profile": key_profile,
+                "snr_db": result.snr_db,
+                "confidence": result.confidence,
+                "dot_ms": result.dot_ms,
+                "marks": result.marks,
+                "spaces": result.spaces,
+                "reason": result.reason,
+                "updated_at": time.time(),
+            }
+
+            state.update(trainer_selftest=selftest_result)
+
+            return jsonify(selftest_result)
+
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 500
+
+
+    @app.route("/api/cw/stop", methods=["POST"])
+    def cw_stop():
+        proc = cw_process.get("proc")
+        if proc and proc.poll() is None:
+            proc.terminate()
+        state.append_status("CW generator stopped")
+        return jsonify({"ok": True})
+
+    @app.route("/download/report.json")
+    def report_json():
+        data = json.dumps(state.snapshot(), indent=2)
+        return Response(
+            data,
+            mimetype="application/json",
+            headers={
+                "Content-Disposition": "attachment; filename=morse-whisperer-report.json",
+                "Cache-Control": "no-store",
+            },
+        )
+
+    @app.route("/download/copy.txt")
+    def copy_txt():
+        snap = state.snapshot()
+        dec = snap.get("decode", {})
+        text = (
+            "COPY:\n"
+            + str(dec.get("stable_copy") or dec.get("copy") or "")
+            + "\n\nRAW:\n"
+            + str(dec.get("stable_raw") or dec.get("raw") or "")
+            + "\n"
+        )
+        return Response(
+            text,
+            mimetype="text/plain",
+            headers={
+                "Content-Disposition": "attachment; filename=morse-whisperer-copy.txt",
+                "Cache-Control": "no-store",
+            },
+        )
 
     return app
-
-
-def _run_helper(payload: Dict) -> Dict:
-    helper = APP_DIR / 'tools' / 'network_connect_helper.py'
-    cp = subprocess.run([str(helper)], input=json.dumps(payload), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
-    try:
-        return json.loads(cp.stdout or '{}')
-    except Exception:
-        return {'ok': False, 'stdout': cp.stdout, 'stderr': cp.stderr, 'returncode': cp.returncode}
-
-
-def _make_cw_wav(text: str, tone: int, wpm: float, volume: int) -> str:
-    table = {'A':'.-','B':'-...','C':'-.-.','D':'-..','E':'.','F':'..-.','G':'--.','H':'....','I':'..','J':'.---','K':'-.-','L':'.-..','M':'--','N':'-.','O':'---','P':'.--.','Q':'--.-','R':'.-.','S':'...','T':'-','U':'..-','V':'...-','W':'.--','X':'-..-','Y':'-.--','Z':'--..','1':'.----','2':'..---','3':'...--','4':'....-','5':'.....','6':'-....','7':'--...','8':'---..','9':'----.','0':'-----'}
-    sr = 48000
-    dot = 1.2 / max(wpm, 1.0)
-    amp = max(0.01, min(0.95, volume / 100.0)) * 24000
-    samples = []
-    def add_t(sec, on):
-        n = int(sr * sec)
-        start = len(samples)
-        for i in range(n):
-            if on:
-                # raised cosine edges
-                edge = min(1.0, i/(sr*0.005+1), (n-i)/(sr*0.005+1))
-                samples.append(int(math.sin(2*math.pi*tone*(start+i)/sr) * amp * edge))
-            else:
-                samples.append(0)
-    for word in text.upper().split():
-        for ch in word:
-            code = table.get(ch)
-            if not code: continue
-            for sym in code:
-                add_t(dot * (3 if sym == '-' else 1), True); add_t(dot, False)
-            add_t(dot*2, False)
-        add_t(dot*4, False)
-    fd, path = tempfile.mkstemp(prefix='mw-cw-', suffix='.wav')
-    os.close(fd)
-    with wave.open(path, 'wb') as w:
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr)
-        w.writeframes(np.asarray(samples, dtype='<i2').tobytes())
-    return path

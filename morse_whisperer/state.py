@@ -1,38 +1,52 @@
 from __future__ import annotations
-
+import copy
 import threading
 import time
-from copy import deepcopy
 from typing import Any, Dict
-
 
 class SharedState:
     def __init__(self) -> None:
-        self._lock = threading.RLock()
+        self._lock = threading.Lock()
         self._data: Dict[str, Any] = {
-            "running": True,
-            "updated_at": time.time(),
-            "quality": {},
-            "decode": {},
+            "project": "The Morse Whisperer",
+            "mode": "starting",
+            "started_at": time.time(),
+            "updated_at": None,
             "audio": {},
-            "status_log": [],
+            "decode": {
+                "raw": "",
+                "copy": "",
+                "stable_copy": "",
+                "events": [],
+            },
+            "quality": {},
+            "status": [],
+            "config": {},
         }
 
-    def merge(self, **kwargs: Any) -> None:
+    def update(self, **kwargs: Any) -> None:
         with self._lock:
-            self._data.update(kwargs)
+            for k, v in kwargs.items():
+                self._data[k] = v
             self._data["updated_at"] = time.time()
 
-    def update(self, **kwargs: Any) -> None:
-        self.merge(**kwargs)
+    def merge(self, section: str, value: Dict[str, Any]) -> None:
+        with self._lock:
+            current = self._data.get(section, {})
+            if not isinstance(current, dict):
+                current = {}
+            current.update(value)
+            self._data[section] = current
+            self._data["updated_at"] = time.time()
+
+    def append_status(self, message: str, limit: int = 50) -> None:
+        with self._lock:
+            status = list(self._data.get("status", []))
+            status.append({"time": time.time(), "message": message})
+            self._data["status"] = status[-limit:]
+            self._data["updated_at"] = time.time()
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
-            return deepcopy(self._data)
+            return copy.deepcopy(self._data)
 
-    def append_status(self, message: str) -> None:
-        with self._lock:
-            items = list(self._data.get("status_log", []))
-            items.append(f"{time.strftime('%H:%M:%S')} {message}")
-            self._data["status_log"] = items[-30:]
-            self._data["updated_at"] = time.time()
