@@ -34,6 +34,11 @@ class DecodeResult:
     spaces: int
     decoded_symbols: int
     failed_symbols: int
+    filter_enabled: bool = False
+    filter_mode: str = "off"
+    filter_low_hz: float = 0.0
+    filter_high_hz: float = 0.0
+    filter_bandwidth_hz: float = 0.0
     reason: str = "ok"
 
 
@@ -64,6 +69,55 @@ def _metrics(x: np.ndarray) -> Dict[str, float | str]:
     else:
         status = "OK"
     return {"rms": rms, "peak": peak, "clipping_percent": clip, "dc_offset": 0.0, "level_status": status}
+
+
+def _filter_settings(config: Dict, sr: int, tone_hz: int) -> tuple[bool, str, float, float, float]:
+    enabled = bool(config.get("audio_filter_enabled", True))
+    mode = str(config.get("audio_filter_mode", "wide") or "wide").lower()
+    nyq = sr / 2.0
+    if not enabled or mode == "off":
+        return False, "off", 0.0, 0.0, 0.0
+
+    if mode == "narrow":
+        bandwidth = float(config.get("audio_filter_narrow_hz", 220))
+    elif mode == "custom":
+        bandwidth = float(config.get("audio_filter_bandwidth_hz", 300))
+    else:
+        mode = "wide"
+        bandwidth = float(config.get("audio_filter_wide_hz", 500))
+
+    bandwidth = max(80.0, min(float(config.get("audio_filter_max_hz", 1200)), bandwidth))
+    half = bandwidth / 2.0
+    low = max(40.0, float(tone_hz) - half)
+    high = min(nyq - 50.0, float(tone_hz) + half)
+    if high <= low:
+        return False, "off", 0.0, 0.0, 0.0
+    return True, mode, low, high, bandwidth
+
+
+def _fft_bandpass(x: np.ndarray, sr: int, low_hz: float, high_hz: float, transition_hz: float = 45.0) -> np.ndarray:
+    """Small dependency-free FFT band-pass for analysis windows.
+
+    This is not used for audio playback. It simply reduces off-frequency energy before
+    the Goertzel envelope and timing detector run. The soft transition avoids hard-bin
+    ringing while keeping install dependencies light; no scipy required.
+    """
+    if len(x) < 32 or high_hz <= low_hz:
+        return x
+    spectrum = np.fft.rfft(x.astype(np.float32))
+    freqs = np.fft.rfftfreq(len(x), d=1.0 / sr)
+    mask = np.zeros_like(freqs, dtype=np.float32)
+    passband = (freqs >= low_hz) & (freqs <= high_hz)
+    mask[passband] = 1.0
+    if transition_hz > 0:
+        lo = (freqs >= max(0.0, low_hz - transition_hz)) & (freqs < low_hz)
+        if np.any(lo):
+            mask[lo] = 0.5 - 0.5 * np.cos(np.pi * (freqs[lo] - (low_hz - transition_hz)) / transition_hz)
+        hi = (freqs > high_hz) & (freqs <= high_hz + transition_hz)
+        if np.any(hi):
+            mask[hi] = 0.5 + 0.5 * np.cos(np.pi * (freqs[hi] - high_hz) / transition_hz)
+    filtered = np.fft.irfft(spectrum * mask, n=len(x))
+    return filtered.astype(np.float32)
 
 
 def _goertzel_power(block: np.ndarray, sr: int, tone: float) -> float:
@@ -146,32 +200,36 @@ def _decode(events: List[Dict[str, float | str]], dot_ms: float, char_gap: float
 
 def analyse_samples(samples: np.ndarray, config: Dict) -> DecodeResult:
     sr = int(config.get("sample_rate", 8000))
-    x = _float_audio(samples)
-    audio = _metrics(x)
+    x_raw = _float_audio(samples)
+    audio = _metrics(x_raw)
     tones: Sequence[int] = config.get("allowed_tones_hz") or [700]
     block_n = max(16, int(sr * float(config.get("window_ms", 12)) / 1000.0))
     hop_n = max(8, int(sr * float(config.get("hop_ms", 8)) / 1000.0))
     hop_ms = hop_n * 1000.0 / sr
 
+    # First pass: tone ranking uses unfiltered audio so full-auto can still find the tone.
     ranking = []
-    envs = {}
+    raw_envs = {}
     for tone in tones:
-        env = _tone_envelope(x, sr, int(tone), block_n, hop_n)
-        envs[int(tone)] = env
+        env = _tone_envelope(x_raw, sr, int(tone), block_n, hop_n)
+        raw_envs[int(tone)] = env
         ranking.append({"tone_hz": int(tone), "score": float(np.percentile(env, 95)) if len(env) else 0.0})
     ranking.sort(key=lambda r: r["score"], reverse=True)
     selected = int(ranking[0]["tone_hz"]) if ranking else int(config.get("target_tone_hz", 700))
     if str(config.get("tone_mode", "session_auto")) in ("fixed", "manual"):
         selected = int(config.get("target_tone_hz", selected))
-    env = envs.get(selected, np.asarray([], dtype=np.float32))
+
+    filter_enabled, filter_mode, filter_low, filter_high, filter_bw = _filter_settings(config, sr, selected)
+    x = _fft_bandpass(x_raw, sr, filter_low, filter_high) if filter_enabled else x_raw
+    env = _tone_envelope(x, sr, selected, block_n, hop_n)
+
     if len(env) == 0:
-        return DecodeResult("", "", selected, int(config.get("target_tone_hz", selected)), str(config.get("tone_mode", "session_auto")), 0, 0, 0, 1200/18.75, 18.75, audio, ranking, [], 0, 0, 0, 0, "no audio")
+        return DecodeResult("", "", selected, int(config.get("target_tone_hz", selected)), str(config.get("tone_mode", "session_auto")), 0, 0, 0, 1200/18.75, 18.75, audio, ranking, [], 0, 0, 0, 0, filter_enabled, filter_mode, filter_low, filter_high, filter_bw, "no audio")
     noise = float(np.percentile(env, 35))
     signal = float(np.percentile(env, 92))
     threshold = noise + (signal - noise) * float(config.get("threshold_bias", 0.48))
     mask = env > threshold
     ev = _events(mask, hop_ms)
-    # trim tiny chatter
     ev = [e for e in ev if float(e["ms"]) >= 0.45 * hop_ms]
     dot = _estimate_dot(ev, float(config.get("initial_wpm", 18.75)))
     wpm = 1200.0 / max(dot, 1.0)
@@ -181,4 +239,4 @@ def analyse_samples(samples: np.ndarray, config: Dict) -> DecodeResult:
     ratio = float(top / max(second, 1e-12))
     snr = float(10.0 * math.log10(max(signal, 1e-12) / max(noise, 1e-12)))
     conf = max(0.0, min(1.0, (snr / 30.0) * min(1.0, ratio / 6.0)))
-    return DecodeResult(raw, copy, selected, int(config.get("target_tone_hz", selected)), str(config.get("tone_mode", "session_auto")), ratio, snr, conf, dot, wpm, audio, ranking, ev[-int(config.get("max_events_in_snapshot", 160)):], sum(e["kind"]=="mark" for e in ev), sum(e["kind"]=="space" for e in ev), decoded, failed, "ok")
+    return DecodeResult(raw, copy, selected, int(config.get("target_tone_hz", selected)), str(config.get("tone_mode", "session_auto")), ratio, snr, conf, dot, wpm, audio, ranking, ev[-int(config.get("max_events_in_snapshot", 160)):], sum(e["kind"]=="mark" for e in ev), sum(e["kind"]=="space" for e in ev), decoded, failed, filter_enabled, filter_mode, filter_low, filter_high, filter_bw, "ok")
