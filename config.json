@@ -41,7 +41,7 @@
     "/dev/fb1",
     "/dev/fb0"
   ],
-  "station_callsign": "N0CALL",
+  "station_callsign": "ZL1SXG",
   "audio_device": "plughw:2,0",
   "audio_backend": "arecord",
   "audio_blocksize": 64,
@@ -92,7 +92,7 @@
   "cw_generator_wpm": 18.75,
   "cw_generator_volume_percent": 35,
   "cw_generator_farnsworth_wpm": 18.75,
-  "cw_generator_key_profile": "<set-me>",
+  "cw_generator_key_profile": "computer",
   "cw_generator_start_delay_ms": 0,
   "cw_generator_end_gap_ms": 1000,
   "cw_generator_playback_mode": "sound",

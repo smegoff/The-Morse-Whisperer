@@ -1,102 +1,163 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="/opt/morse-whisperer-pi"
 SERVICE_USER="morsewhisperer"
-REPO_ZIP="https://github.com/smegoff/The-Morse-Whisperer/archive/refs/heads/main.zip"
-TMP_DIR="$(mktemp -d)"
-CONFIG_TXT="/boot/firmware/config.txt"
 
-log(){ echo "[morse-whisperer] $*"; }
-fail(){ echo "[morse-whisperer] ERROR: $*" >&2; exit 1; }
+echo "[mw-install] The Morse Whisperer recovery installer"
+echo "[mw-install] Source: $SRC_DIR"
+echo "[mw-install] Target: $APP_DIR"
 
-[ "$(id -u)" -eq 0 ] || fail "run with sudo"
-trap 'rm -rf "$TMP_DIR"' EXIT
+if [ "$(id -u)" -ne 0 ]; then
+  echo "[mw-install] ERROR: run with sudo"
+  exit 1
+fi
 
-log "Installing packages"
+echo "[mw-install] Installing apt packages"
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   python3 python3-venv python3-pip python3-numpy python3-pil python3-rpi.gpio \
-  alsa-utils network-manager wireless-tools iw curl ca-certificates unzip rsync \
-  polkitd fonts-dejavu-core
-
-log "Downloading current repository"
-curl -fsSL "$REPO_ZIP" -o "$TMP_DIR/repo.zip"
-unzip -q "$TMP_DIR/repo.zip" -d "$TMP_DIR"
-SRC_DIR="$(find "$TMP_DIR" -maxdepth 1 -type d -name 'The-Morse-Whisperer-*' | head -1)"
-[ -n "$SRC_DIR" ] || fail "could not unpack repository"
+  alsa-utils network-manager wireless-tools iw curl ca-certificates unzip \
+  polkitd
 
 if ! id "$SERVICE_USER" >/dev/null 2>&1; then
-  log "Creating service user: $SERVICE_USER"
+  echo "[mw-install] Creating service user: $SERVICE_USER"
   useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
 
-log "Installing app into $APP_DIR"
+echo "[mw-install] Creating app directory"
 mkdir -p "$APP_DIR"
 rsync -a --delete \
-  --exclude '.git' \
-  --exclude 'docs' \
-  --exclude 'systemd' \
-  --exclude 'polkit' \
-  --exclude 'screenshots' \
-  --exclude '__pycache__' \
   --exclude 'venv' \
+  --exclude 'patch-backups' \
+  --exclude '__pycache__' \
   "$SRC_DIR"/ "$APP_DIR"/
 
-if [ ! -f "$APP_DIR/config.json" ]; then
-  cp "$APP_DIR/config.example.json" "$APP_DIR/config.json"
-fi
-
-log "Creating Python virtual environment"
+echo "[mw-install] Creating Python venv"
 python3 -m venv --system-site-packages "$APP_DIR/venv"
 "$APP_DIR/venv/bin/python" -m pip install --upgrade pip wheel
-"$APP_DIR/venv/bin/python" -m pip install -r "$APP_DIR/requirements.txt"
+"$APP_DIR/venv/bin/python" -m pip install flask numpy pillow
 
-log "Installing systemd units"
-install -m 0644 "$SRC_DIR/systemd/morse-whisperer.service" /etc/systemd/system/morse-whisperer.service
-install -m 0644 "$SRC_DIR/systemd/morse-whisperer-buttons.service" /etc/systemd/system/morse-whisperer-buttons.service
-
-log "Installing NetworkManager Polkit rule"
-install -d -m 0755 /etc/polkit-1/rules.d
-install -m 0644 "$SRC_DIR/polkit/49-morse-whisperer-networkmanager.rules" /etc/polkit-1/rules.d/49-morse-whisperer-networkmanager.rules
-systemctl reload polkit 2>/dev/null || systemctl restart polkit 2>/dev/null || true
-
-log "Setting permissions"
+echo "[mw-install] Permissions"
 chown -R root:root "$APP_DIR"
 chmod -R a+rX "$APP_DIR"
-chmod +x "$APP_DIR/tools/"*.py "$APP_DIR/tools/"*.sh 2>/dev/null || true
-chown root:"$SERVICE_USER" "$APP_DIR" "$APP_DIR/config.json"
-chmod 775 "$APP_DIR"
-chmod 664 "$APP_DIR/config.json"
+chmod +x "$APP_DIR/tools/"*.sh || true
+chmod +x "$APP_DIR/tools/"*.py || true
 
-if [ -f "$CONFIG_TXT" ]; then
-  log "Checking TFT boot overlay in $CONFIG_TXT"
-  cp -a "$CONFIG_TXT" "$CONFIG_TXT.bak-morse-whisperer-$(date +%Y%m%d-%H%M%S)"
-  grep -q '^dtparam=spi=on' "$CONFIG_TXT" || echo 'dtparam=spi=on' >> "$CONFIG_TXT"
-  if grep -q '^dtoverlay=vc4-kms-v3d' "$CONFIG_TXT"; then
-    sed -i 's/^dtoverlay=vc4-kms-v3d/#dtoverlay=vc4-kms-v3d/' "$CONFIG_TXT"
-  fi
-  if ! grep -q '^dtoverlay=pitft28-resistive,rotate=90,speed=32000000,fps=20' "$CONFIG_TXT"; then
-    cat >> "$CONFIG_TXT" <<'EOF'
-
-# Morse Whisperer XC9022 / GoodTFT 2.8 inch SPI LCD
-dtparam=spi=on
-dtoverlay=pitft28-resistive,rotate=90,speed=32000000,fps=20
+echo "[mw-install] Installing Polkit rule for NetworkManager"
+cat >/etc/polkit-1/rules.d/49-morse-whisperer-networkmanager.rules <<EOF
+// Allow The Morse Whisperer web service user to manage NetworkManager Wi-Fi
+// for appliance setup/recovery.
+// Scope is limited to the morse-whisperer service user.
+polkit.addRule(function(action, subject) {
+    if (
+        subject.user == "$SERVICE_USER" &&
+        (
+            action.id == "org.freedesktop.NetworkManager.network-control" ||
+            action.id == "org.freedesktop.NetworkManager.enable-disable-wifi" ||
+            action.id == "org.freedesktop.NetworkManager.wifi.scan" ||
+            action.id == "org.freedesktop.NetworkManager.settings.modify.system" ||
+            action.id == "org.freedesktop.NetworkManager.settings.modify.own" ||
+            action.id == "org.freedesktop.NetworkManager.settings.modify.hostname"
+        )
+    ) {
+        return polkit.Result.YES;
+    }
+});
 EOF
-  fi
-fi
+chmod 0644 /etc/polkit-1/rules.d/49-morse-whisperer-networkmanager.rules
+chown root:root /etc/polkit-1/rules.d/49-morse-whisperer-networkmanager.rules
+systemctl restart polkit 2>/dev/null || systemctl restart polkit.service 2>/dev/null || true
 
-log "Enabling services"
+echo "[mw-install] Installing main systemd service"
+cat >/etc/systemd/system/morse-whisperer.service <<EOF
+[Unit]
+Description=The Morse Whisperer CW Decoder Appliance
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_USER
+WorkingDirectory=$APP_DIR
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/usr/bin/timeout 6s $APP_DIR/venv/bin/python $APP_DIR/tools/safe_splash_v2.py
+ExecStart=$APP_DIR/venv/bin/python -m morse_whisperer
+Restart=on-failure
+RestartSec=4
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo "[mw-install] Installing button sidecar service"
+cat >/etc/systemd/system/morse-whisperer-buttons.service <<EOF
+[Unit]
+Description=The Morse Whisperer TFT Button Sidecar
+After=morse-whisperer.service
+Wants=morse-whisperer.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$APP_DIR
+ExecStart=$APP_DIR/tools/button_sidecar.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo "[mw-install] Installing NetworkManager fallback hotspot service disabled by default"
+cat >/etc/systemd/system/morse-whisperer-network-fallback.service <<EOF
+[Unit]
+Description=The Morse Whisperer Wi-Fi setup hotspot fallback
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=$APP_DIR/tools/network_fallback.sh start-if-needed
+ExecStop=$APP_DIR/tools/network_fallback.sh stop
+TimeoutStartSec=45
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo "[mw-install] Validating Python"
+"$APP_DIR/venv/bin/python" -m py_compile \
+  "$APP_DIR"/morse_whisperer/*.py \
+  "$APP_DIR"/tools/network_connect_helper.py
+
+echo "[mw-install] Enabling services"
 systemctl daemon-reload
 systemctl enable morse-whisperer.service
-systemctl enable morse-whisperer-buttons.service || true
+systemctl enable morse-whisperer-buttons.service
+# fallback hotspot deliberately installed but not enabled yet
+systemctl disable morse-whisperer-network-fallback.service >/dev/null 2>&1 || true
+
+echo "[mw-install] Starting service"
 systemctl restart morse-whisperer.service
 systemctl restart morse-whisperer-buttons.service || true
 
-sleep 3
-systemctl status morse-whisperer --no-pager -l | sed -n '1,50p' || true
+sleep 4
 
-IP_ADDR="$(hostname -I 2>/dev/null | awk '{print $1}')"
-log "Done"
-log "Open: http://${IP_ADDR:-<pi-ip>}:8080"
-log "If this is a fresh TFT install, reboot now: sudo reboot"
+echo
+echo "[mw-install] Status:"
+systemctl status morse-whisperer --no-pager -l | sed -n '1,35p' || true
+echo
+echo "[mw-install] IP address(es):"
+hostname -I || true
+echo
+echo "[mw-install] Open:"
+echo "  http://<pi-ip>:8080"
+echo
+echo "[mw-install] Fallback hotspot service is installed but disabled:"
+echo "  sudo systemctl enable --now morse-whisperer-network-fallback.service"
