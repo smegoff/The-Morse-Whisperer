@@ -15,8 +15,14 @@
 - TFT COPY page profile indicator:
   - `STABLE COPY CLEAN`
   - `STABLE COPY RADIO`
+- One-shot installer support for:
+  - profile files
+  - profile switch permissions
+  - systemd services
+  - validation
 - Documentation:
   - README
+  - Installation
   - Decoder profiles
   - Operating guide
   - Recovery guide

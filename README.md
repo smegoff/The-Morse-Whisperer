@@ -1,6 +1,6 @@
 # The Morse Whisperer
 
-The Morse Whisperer is a Raspberry Pi based CW / Morse decoder appliance.
+The Morse Whisperer is a Raspberry Pi based CW / Morse decoder appliance for both clean generated CW and real radio CW.
 
 It provides:
 
@@ -10,7 +10,30 @@ It provides:
 - TFT display output
 - browser-based status/control UI
 - built-in clean CW generator/self-test
-- selectable decoder profiles for clean generated CW and real radio CW
+- separate decoder profiles for clean generated CW and radio/KiwiSDR CW
+- web and command-line profile switching
+- TFT mode indicator showing `STABLE COPY CLEAN` or `STABLE COPY RADIO`
+
+## Quick start
+
+Install or rebuild from a repo checkout:
+
+```bash
+sudo ./install.sh
+```
+
+Open the web UI:
+
+```text
+http://<pi-ip>:8080
+```
+
+Check service health:
+
+```bash
+systemctl is-active morse-whisperer.service
+curl -sS http://127.0.0.1:8080/api/snapshot | python3 -m json.tool
+```
 
 ## Decoder profiles
 
@@ -41,6 +64,8 @@ The web UI also has a Decoder Profile selector. Switching profiles from the web 
 
 ## Clean CW verification
 
+Run:
+
 ```bash
 curl -sS -X POST http://127.0.0.1:8080/api/cw/selftest \
   -H 'Content-Type: application/json' \
@@ -55,39 +80,33 @@ status: PASS
 decoded: CQ CQ DE ZL1SXG ZL1SXG K
 ```
 
-## TFT profile label
+## Radio CW verification
 
-The TFT COPY page shows the active profile:
+Switch to Radio CW, feed receiver/KiwiSDR audio into the USB audio input, and inspect the live snapshot:
+
+```bash
+sudo /opt/morse-whisperer-pi/tools/set_decoder_profile.py kiwi
+sudo systemctl restart morse-whisperer.service
+
+curl -sS http://127.0.0.1:8080/api/snapshot | python3 -m json.tool
+```
+
+Useful fields:
+
+- `audio.level_status`
+- `quality.selected_tone_hz`
+- `quality.snr_db`
+- `quality.confidence`
+- `decode.stable_copy`
+
+## TFT display
+
+The COPY page shows the active profile:
 
 ```text
 STABLE COPY CLEAN
 STABLE COPY RADIO
 ```
-
-## Important troubleshooting note
-
-If the self-test passes but live CW does not decode, check the audio path first. In testing, the major “deaf decoder” fault was a physical audio cable/connection issue, not the decoder engine.
-
-## Main service
-
-```bash
-sudo systemctl status morse-whisperer.service --no-pager -l
-sudo systemctl restart morse-whisperer.service
-```
-
-## Web UI
-
-```text
-http://<pi-ip>:8080
-```
-
-Local API check:
-
-```bash
-curl -sS http://127.0.0.1:8080/api/snapshot | python3 -m json.tool
-```
-
-## Hardware notes
 
 Known TFT button mapping on this build:
 
@@ -99,3 +118,15 @@ Known TFT button mapping on this build:
 | 4 | GPIO18 | Clear | Full reset |
 
 Avoid reusing LCD control pins for buttons or other GPIO functions.
+
+## Important troubleshooting note
+
+If the self-test passes but live CW does not decode, check the audio path first. During testing, the major “deaf decoder” fault was a physical audio cable/connection issue, not the decoder engine.
+
+## Documentation
+
+- [Installation](docs/installation.md)
+- [Operating Guide](docs/operating-guide.md)
+- [Decoder Profiles](docs/decoder-profiles.md)
+- [Recovery Guide](docs/recovery.md)
+- [Changelog](docs/CHANGELOG.md)

@@ -67,7 +67,7 @@ If self-test passes but live copy is empty:
 1. Check the audio cable.
 2. Check the browser/KiwiSDR output volume.
 3. Check ALSA capture gain.
-4. Record a WAV directly from the device.
+4. Record a WAV directly from the capture device.
 
 ```bash
 arecord -D plughw:2,0 -r 8000 -f S16_LE -c 1 -d 12 /tmp/live-cw-test.wav
@@ -77,8 +77,17 @@ arecord -D plughw:2,0 -r 8000 -f S16_LE -c 1 -d 12 /tmp/live-cw-test.wav
 
 The web UI profile switch requires permission to restart `morse-whisperer.service`.
 
-A polkit rule is used to allow the service user/group to restart only that unit:
+The one-shot installer creates a polkit rule to allow the service user/group to restart only that unit:
 
 ```text
 /etc/polkit-1/rules.d/49-morse-whisperer-profile-restart.rules
+```
+
+## TFT display
+
+The TFT COPY page displays the active profile:
+
+```text
+STABLE COPY CLEAN
+STABLE COPY RADIO
 ```

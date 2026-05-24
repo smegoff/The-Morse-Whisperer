@@ -4,7 +4,17 @@ The Morse Whisperer uses profiles so real radio tuning does not break the clean/
 
 ## Clean CW
 
-Internal key: `clean`
+Internal key:
+
+```text
+clean
+```
+
+Display name:
+
+```text
+Clean CW
+```
 
 Purpose:
 
@@ -20,15 +30,26 @@ tone_mode: session_auto
 target_tone_hz: 700
 allowed_tones_hz: 400-1000 Hz
 audio_filter_mode: wide
+copy_min_decoded_symbols: 5
+copy_max_failed_symbols: 0
 copy_min_confidence: 0.85
 copy_min_snr: 12.0
+decode_window_sec: 10
 ```
 
 ## Radio CW
 
-Internal key: `kiwi`
+Internal key:
 
-Display name: `Radio CW`
+```text
+kiwi
+```
+
+Display name:
+
+```text
+Radio CW
+```
 
 Purpose:
 
@@ -45,12 +66,16 @@ target_tone_hz: 650
 allowed_tones_hz: 400-2000 Hz
 audio_filter_mode: narrow
 audio_filter_narrow_hz: 260
+copy_min_decoded_symbols: 3
+copy_max_failed_symbols: 1
 copy_min_confidence: 0.70
 copy_min_snr: 7.0
 decode_window_sec: 16
 ```
 
 ## Switching
+
+Command-line:
 
 ```bash
 sudo /opt/morse-whisperer-pi/tools/set_decoder_profile.py clean
@@ -70,4 +95,6 @@ Switching profiles from the web UI saves the selected profile, restarts the serv
 
 ## Design rule
 
-Do not tune Clean CW to fix radio signals. Tune only the Radio CW profile for real receiver/KiwiSDR work.
+Do not tune Clean CW to fix radio signals.
+
+Tune only the Radio CW profile for real receiver/KiwiSDR work.
