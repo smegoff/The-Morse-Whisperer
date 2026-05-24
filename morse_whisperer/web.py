@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Dict
 
 from flask import Flask, Response, jsonify, request, send_from_directory
+from .ai import install_ai_routes
 
 from .config import DEFAULTS, save_config
 from .dsp import analyse_samples
@@ -1090,6 +1091,41 @@ body > *:not(#mwSplashWatermark){
       100vw auto;
   }
 }
+
+/* MW_AI_COPILOT_LAYOUT_V2 */
+.aiCopilotWide{
+  margin-top:16px;
+}
+.aiCopilotWide .cardBody{
+  display:grid;
+  grid-template-columns:minmax(260px,.9fr) minmax(360px,1.1fr);
+  gap:14px;
+  align-items:start;
+}
+.aiCopilotWide .controls{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.aiCopilotWide .setting{
+  margin-top:0 !important;
+}
+.aiCopilotWide textarea{
+  min-height:86px;
+}
+.aiCopilotWide pre{
+  max-height:105px;
+  overflow:auto;
+}
+.aiCopilotWide .kv{
+  margin-top:10px;
+}
+@media (max-width:1000px){
+  .aiCopilotWide .cardBody{
+    grid-template-columns:1fr;
+  }
+}
+
 </style>
 
 </head>
@@ -1175,6 +1211,43 @@ body > *:not(#mwSplashWatermark){
       </section>
     </aside>
   </div>
+
+  <!-- MW_AI_COPILOT_LAYOUT_V2 -->
+
+
+      <section class="card aiCopilotWide" id="aiCopilotCard">
+        <div class="cardHead">
+          <h3>Morse Whisperer Copilot</h3>
+          <span id="aiProviderBadge" class="badge">local assist</span>
+        </div>
+        <div class="cardBody">
+          <div class="small" style="margin-bottom:10px">
+            Local-first QSO helper. AI, when enabled, only analyses copy and suggests replies for human review.
+          </div>
+
+          <div class="controls">
+            <button onclick="aiAnalyseCurrent()">Analyse current copy</button>
+            <button class="primary" onclick="aiSuggestReply()">Suggest reply</button>
+            <button onclick="aiCopyReply()">Copy reply</button>
+            <button onclick="aiPlayReply()">Play reply as CW</button>
+            <button onclick="aiResetQso()">Reset QSO</button>
+          </div>
+
+          <div class="kv" style="margin-top:12px">
+            <div>Intent</div><div id="aiIntent">--</div>
+            <div>Station</div><div id="aiTheirCall">--</div>
+            <div>Confidence</div><div id="aiConfidence">--</div>
+          </div>
+
+          <div class="setting" style="margin-top:12px">
+            <label for="aiReplyText">Suggested reply</label>
+            <textarea id="aiReplyText" rows="3" placeholder="No suggested reply yet."></textarea>
+            <div class="hint" id="aiPlainEnglish">Analyse or suggest a reply to populate this.</div>
+          </div>
+
+          <pre class="log" id="aiWarnings" style="margin-top:10px">AI Copilot ready.</pre>
+        </div>
+      </section>
 
   <section class="card" style="margin-top:16px">
     <div class="cardHead">
@@ -1263,6 +1336,39 @@ body > *:not(#mwSplashWatermark){
             <label for="setOutputDevice">USB speaker output</label>
             <input id="setOutputDevice" type="text" placeholder="plughw:2,0">
             <div class="hint">Used by the CW generator via aplay.</div>
+          </div>
+
+          <div class="setting">
+            <label for="setAiEnabled">AI assistance</label>
+            <select id="setAiEnabled">
+              <option value="false">Disabled — local only</option>
+              <option value="true">Enabled — assist only</option>
+            </select>
+            <div class="hint">Decoder always remains local. AI only analyses copy and suggests replies for review.</div>
+          </div>
+
+          <div class="setting">
+            <label for="setAiProvider">AI provider</label>
+            <select id="setAiProvider">
+              <option value="local">Local rules only</option>
+              <option value="openai">OpenAI / ChatGPT</option>
+            </select>
+            <div class="hint">OpenAI requires /etc/morse-whisperer/ai.env.</div>
+          </div>
+
+          <div class="setting">
+            <label for="setAiModel">AI model</label>
+            <input id="setAiModel" type="text" placeholder="gpt-4.1-mini">
+            <div class="hint">Used only when AI assistance is enabled.</div>
+          </div>
+
+          <div class="setting">
+            <label for="setAiRealtimeAssist">AI real-time assist</label>
+            <select id="setAiRealtimeAssist">
+              <option value="false">Disabled</option>
+              <option value="true">Enabled for new copy</option>
+            </select>
+            <div class="hint">When AI assistance is enabled, analyse new stable COPY events automatically.</div>
           </div>
         </div>
 
@@ -1614,6 +1720,307 @@ async function toggleBandwidthFilter(){
     if(btn) btn.disabled = false;
   }
 }
+
+/* MW_AI_COPILOT_WEB_CARD_V1 */
+let mwAiLastAnalysis = null;
+let mwAiLastReply = null;
+
+function aiSetStatus(message, good=false){
+  const el = $('aiWarnings');
+  if(!el) return;
+  el.textContent = message || '';
+  el.className = 'log' + (good ? ' good' : '');
+}
+
+function aiCurrentCopyText(){
+  const copy = ($('copy')?.textContent || '').trim();
+  const raw = ($('raw')?.textContent || '').trim();
+
+  if(copy && copy !== 'Waiting for CW…' && copy !== 'Waiting for CW...' && !copy.includes('Waiting for CW')){
+    return copy;
+  }
+
+  if(raw && raw !== 'No accepted raw copy yet.'){
+    return raw;
+  }
+
+  return '';
+}
+
+function aiUpdateProviderBadge(ctxOrSettings){
+  const badge = $('aiProviderBadge');
+  if(!badge) return;
+
+  const enabled = ctxOrSettings && ctxOrSettings.ai_enabled === true;
+  const provider = (ctxOrSettings && ctxOrSettings.ai_provider) || 'local';
+
+  if(enabled && provider === 'openai'){
+    badge.textContent = 'AI assist enabled';
+    badge.className = 'badge good';
+  }else{
+    badge.textContent = 'local assist';
+    badge.className = 'badge';
+  }
+}
+
+function aiRenderAnalysis(analysis){
+  if(!analysis) return;
+
+  mwAiLastAnalysis = analysis;
+  $('aiIntent').textContent = analysis.detected_intent || '--';
+  $('aiTheirCall').textContent = analysis.their_call || ((analysis.qso_state||{}).their_call) || '--';
+
+  const conf = Number(analysis.confidence || (analysis.decoder_quality||{}).confidence || 0);
+  $('aiConfidence').textContent = conf ? conf.toFixed(2) : '--';
+
+  const warnings = analysis.warnings || [];
+  const provider = analysis.provider || (analysis.local_only ? 'local' : 'ai');
+  const fallback = analysis.fallback_used ? ' · fallback used' : '';
+  aiSetStatus(`Analysis provider: ${provider}${fallback}\n${warnings.length ? warnings.join('\n') : 'No warnings.'}`, warnings.length === 0);
+
+  aiUpdateProviderBadge({
+    ai_enabled: analysis.local_only ? false : true,
+    ai_provider: analysis.provider || 'local'
+  });
+}
+
+function aiRenderReply(reply){
+  if(!reply) return;
+
+  mwAiLastReply = reply;
+  $('aiReplyText').value = reply.suggested_reply_text || '';
+  $('aiPlainEnglish').textContent = reply.plain_english || 'Review before sending.';
+
+  const conf = Number(reply.confidence || 0);
+  if(conf) $('aiConfidence').textContent = conf.toFixed(2);
+
+  const warnings = reply.warnings || [];
+  const provider = reply.provider || (reply.local_only ? 'local' : 'ai');
+  const fallback = reply.fallback_used ? ' · fallback used' : '';
+  aiSetStatus(`Reply provider: ${provider}${fallback}\n${warnings.length ? warnings.join('\n') : 'Human review required before transmit.'}`, warnings.length === 0);
+}
+
+async function aiAnalyseCurrent(){
+  const text = aiCurrentCopyText();
+
+  if(!text){
+    aiSetStatus('No decoded copy available yet.');
+    return;
+  }
+
+  aiSetStatus('Analysing current copy...');
+
+  try{
+    const result = await fetch('/api/ai/analyse', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text})
+    }).then(r=>r.json());
+
+    if(!result.ok){
+      throw new Error(result.error || 'analysis failed');
+    }
+
+    aiRenderAnalysis(result);
+  }catch(e){
+    aiSetStatus('AI analyse failed: ' + e);
+  }
+}
+
+async function aiSuggestReply(){
+  const text = aiCurrentCopyText();
+
+  if(!text){
+    aiSetStatus('No decoded copy available yet.');
+    return;
+  }
+
+  aiSetStatus('Suggesting reply...');
+
+  try{
+    const result = await fetch('/api/ai/reply', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text})
+    }).then(r=>r.json());
+
+    if(!result.ok){
+      throw new Error(result.error || 'reply failed');
+    }
+
+    aiRenderAnalysis(result.analysis);
+    aiRenderReply(result.reply);
+  }catch(e){
+    aiSetStatus('AI reply failed: ' + e);
+  }
+}
+
+async function aiCopyReply(){
+  const text = ($('aiReplyText')?.value || '').trim();
+
+  if(!text){
+    aiSetStatus('No suggested reply to copy.');
+    return;
+  }
+
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+      aiSetStatus('Suggested reply copied to clipboard.', true);
+      return;
+    }
+
+    const area = $('aiReplyText');
+    if(area){
+      area.focus();
+      area.select();
+      const ok = document.execCommand && document.execCommand('copy');
+      if(ok){
+        aiSetStatus('Suggested reply copied using browser fallback.', true);
+        return;
+      }
+    }
+
+    aiSetStatus('Clipboard unavailable. The reply text is selected; press Ctrl+C.');
+  }catch(e){
+    const area = $('aiReplyText');
+    if(area){
+      area.focus();
+      area.select();
+    }
+    aiSetStatus('Clipboard unavailable. The reply text is selected; press Ctrl+C.');
+  }
+}
+
+async function aiPlayReply(){
+  const text = ($('aiReplyText')?.value || '').trim();
+
+  if(!text){
+    aiSetStatus('No suggested reply to play.');
+    return;
+  }
+
+  aiSetStatus('Playing suggested reply through CW generator...');
+
+  try{
+    const payload = {
+      text,
+      tone_hz:Number($('cwTone')?.value || $('setTone')?.value || 700),
+      wpm:Number($('cwWpm')?.value || $('setWpm')?.value || 18.75),
+      farnsworth_wpm:Number($('cwFarnsworth')?.value || $('cwWpm')?.value || $('setWpm')?.value || 18.75),
+      key_profile:$('cwKeyProfile')?.value || 'computer',
+      start_delay_ms:Number($('cwStartDelay')?.value || 0),
+      end_gap_ms:Number($('cwEndGap')?.value || 1000),
+      playback_mode:$('cwPlaybackMode')?.value || 'sound',
+      output_device:$('setOutputDevice')?.value || 'plughw:2,0',
+      volume_percent:Number($('cwVolume')?.value || 35)
+    };
+
+    const result = await fetch('/api/cw/play', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    }).then(r=>r.json());
+
+    if(!result.ok){
+      throw new Error(result.error || 'CW generator failed');
+    }
+
+    aiSetStatus('Suggested reply is playing as CW audio. Human review still required before any RF transmit.', true);
+  }catch(e){
+    aiSetStatus('Play reply failed: ' + e);
+  }
+}
+
+async function aiResetQso(){
+  try{
+    const result = await fetch('/api/ai/qso/reset', {method:'POST'}).then(r=>r.json());
+    mwAiLastAnalysis = null;
+    mwAiLastReply = null;
+    $('aiIntent').textContent = '--';
+    $('aiTheirCall').textContent = '--';
+    $('aiConfidence').textContent = '--';
+    $('aiReplyText').value = '';
+    $('aiPlainEnglish').textContent = 'QSO context reset.';
+    aiSetStatus(result.ok ? 'QSO context reset.' : 'QSO reset may have failed.', !!result.ok);
+  }catch(e){
+    aiSetStatus('QSO reset failed: ' + e);
+  }
+}
+
+async function aiLoadContext(){
+  try{
+    const ctx = await fetch('/api/ai/context?ts=' + Date.now(), {cache:'no-store'}).then(r=>r.json());
+    aiUpdateProviderBadge(ctx || {});
+    if(ctx && ctx.qso_state){
+      $('aiTheirCall').textContent = ctx.qso_state.their_call || '--';
+      $('aiIntent').textContent = ctx.qso_state.stage || '--';
+    }
+  }catch(e){
+    // Keep quiet. This is an assist card only.
+  }
+}
+
+
+
+/* MW_AI_REALTIME_ASSIST_CLIPBOARD_V1 */
+let mwAiRealtimeLastCopy = '';
+let mwAiRealtimeLastCallAt = 0;
+let mwAiRealtimeBusy = false;
+
+function aiRealtimeEnabled(cfg){
+  return !!(
+    cfg &&
+    cfg.ai_enabled === true &&
+    cfg.ai_realtime_assist === true
+  );
+}
+
+async function aiMaybeRealtimeAssist(copy, cfg){
+  copy = String(copy || '').trim();
+
+  if(!copy) return;
+  if(!aiRealtimeEnabled(cfg)) return;
+  if(copy === mwAiRealtimeLastCopy) return;
+  if(mwAiRealtimeBusy) return;
+
+  const now = Date.now();
+
+  // Avoid API hammering if the held copy flickers or updates quickly.
+  const minGapMs = Number((cfg && cfg.ai_realtime_min_gap_ms) || 12000);
+  if(now - mwAiRealtimeLastCallAt < minGapMs) return;
+
+  mwAiRealtimeBusy = true;
+  mwAiRealtimeLastCallAt = now;
+  mwAiRealtimeLastCopy = copy;
+
+  aiSetStatus('Auto-assist: analysing new stable copy...');
+
+  try{
+    const result = await fetch('/api/ai/reply', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:copy, source:'realtime_stable_copy'})
+    }).then(r=>r.json());
+
+    if(!result.ok){
+      throw new Error(result.error || 'auto-assist failed');
+    }
+
+    aiRenderAnalysis(result.analysis);
+    aiRenderReply(result.reply);
+
+    const provider = (result.reply && result.reply.provider) || (result.analysis && result.analysis.provider) || 'local';
+    const fallback = (result.reply && result.reply.fallback_used) || (result.analysis && result.analysis.fallback_used);
+    aiSetStatus('Auto-assist updated from new stable copy. Provider: ' + provider + (fallback ? ' · fallback used' : '') + '. Human review required.', true);
+  }catch(e){
+    aiSetStatus('Auto-assist failed: ' + e);
+  }finally{
+    mwAiRealtimeBusy = false;
+  }
+}
+
+
 function updateToneRanking(ranking){
   const list=(ranking||[]).slice(0,10);
   if(!list.length){
@@ -1723,6 +2130,10 @@ async function loadSettings(){
     $('setTftIdleEnabled').value=String(cfg.tft_screen_timeout_enabled !== false);
     $('setTftIdleSeconds').value=cfg.tft_screen_timeout_sec ?? 300;
     $('setOutputDevice').value=cfg.audio_output_device||'plughw:2,0';
+    if ($('setAiEnabled')) $('setAiEnabled').value=String(cfg.ai_enabled===true);
+    if ($('setAiProvider')) $('setAiProvider').value=cfg.ai_provider||'local';
+    if ($('setAiModel')) $('setAiModel').value=cfg.ai_model||'gpt-4.1-mini';
+    if ($('setAiRealtimeAssist')) $('setAiRealtimeAssist').value=String(cfg.ai_realtime_assist===true);
     updateFilterToggleButton(cfg);
     $('cwTone').value=cfg.cw_generator_tone_hz || cfg.target_tone_hz || 700;
     $('cwWpm').value=cfg.cw_generator_wpm || cfg.initial_wpm || 18.75;
@@ -1763,6 +2174,11 @@ async function saveSettings(){
     tft_screen_timeout_sec:Math.max(15,Math.min(3600,Number($('setTftIdleSeconds').value||300))),
     tft_screen_timeout_image:'/opt/morse-whisperer-pi/assets/horse_boot_splash.png',
     audio_output_device:$('setOutputDevice').value,
+    ai_enabled:$('setAiEnabled') ? ($('setAiEnabled').value==='true') : false,
+    ai_provider:$('setAiProvider') ? $('setAiProvider').value : 'local',
+    ai_model:$('setAiModel') ? $('setAiModel').value : 'gpt-4.1-mini',
+    ai_realtime_assist:$('setAiRealtimeAssist') ? ($('setAiRealtimeAssist').value==='true') : false,
+    ai_require_confirmation:true,
     volume_percent:Number($('cwVolume').value),
     cw_generator_tone_hz:Number($('cwTone').value),
     cw_generator_wpm:Number($('cwWpm').value),
@@ -1848,6 +2264,7 @@ async function resetDefaults(){
   const s=await r.json();
   $('settingsMsg').textContent=s.ok ? 'Defaults restored and saved.' : ('Reset failed: '+(s.error||'unknown'));
   await loadSettings();
+aiLoadContext();
 }
 
 function renderConnections(conns){
@@ -2019,6 +2436,8 @@ async function tick(){
     const copy=esc(d.stable_copy || d.copy || '').trim();
     const raw=esc(d.stable_raw || d.raw || '').trim();
 
+    aiMaybeRealtimeAssist(copy, cfg);
+
     $('copy').textContent=copy || 'Waiting for CW…';
     $('copy').classList.toggle('empty', !copy);
     $('raw').textContent=raw || 'No accepted raw copy yet.';
@@ -2117,6 +2536,113 @@ loadSettings();
 })();
 </script>
 
+
+<script>
+/* MW_DECODER_PROFILE_UI_PHASE2_SAFE */
+(function(){
+  async function getProfile(){
+    const r = await fetch('/api/decoder/profile', {cache:'no-store'});
+    if(!r.ok) throw new Error('GET /api/decoder/profile failed');
+    return await r.json();
+  }
+
+  async function setProfile(profile){
+    const r = await fetch('/api/decoder/profile', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({profile:profile, restart:true})
+    });
+    const data = await r.json().catch(() => ({}));
+    if(!r.ok || !data.ok) throw new Error(data.error || 'Profile switch failed');
+    return data;
+  }
+
+  function makePanel(){
+    if(document.getElementById('mwDecoderProfilePanel')) return;
+
+    const panel = document.createElement('div');
+    panel.id = 'mwDecoderProfilePanel';
+    panel.style.cssText = [
+      'border:1px solid rgba(148,163,184,.35)',
+      'border-radius:14px',
+      'padding:12px',
+      'margin:12px 0',
+      'background:rgba(15,23,42,.72)',
+      'box-shadow:0 8px 22px rgba(0,0,0,.20)'
+    ].join(';');
+
+    panel.innerHTML = `
+      <div style="font-weight:700;margin-bottom:8px;">Decoder Profile</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <select id="mwDecoderProfileSelect" style="padding:8px;border-radius:8px;">
+          <option value="clean">Clean CW</option>
+          <option value="kiwi">Radio CW</option>
+        </select>
+        <button id="mwDecoderProfileApply" type="button" style="padding:8px 12px;border-radius:8px;cursor:pointer;">Apply & Restart</button>
+      </div>
+      <div id="mwDecoderProfileStatus" style="font-size:12px;opacity:.86;margin-top:8px;">Loading profile…</div>
+    `;
+
+    const target =
+      document.querySelector('#settings') ||
+      document.querySelector('.settings') ||
+      document.querySelector('main') ||
+      document.querySelector('.wrap') ||
+      document.body;
+
+    target.prepend(panel);
+
+    document.getElementById('mwDecoderProfileApply').addEventListener('click', async () => {
+      const select = document.getElementById('mwDecoderProfileSelect');
+      const status = document.getElementById('mwDecoderProfileStatus');
+      const profile = select.value;
+
+      status.textContent = 'Applying ' + profile + ' profile and restarting…';
+
+      try {
+        await setProfile(profile);
+        status.textContent = 'Profile saved. Service restarting and clearing decoder. Reloading shortly…';
+        setTimeout(() => location.reload(), 9000);
+      } catch(e) {
+        status.textContent = 'Profile switch failed: ' + e.message;
+      }
+    });
+  }
+
+  async function refreshPanel(){
+    makePanel();
+    const select = document.getElementById('mwDecoderProfileSelect');
+    const status = document.getElementById('mwDecoderProfileStatus');
+
+    try {
+      const p = await getProfile();
+      select.value = p.decoder_profile || 'clean';
+
+      let toneRange = 'tones unknown';
+      if(Array.isArray(p.allowed_tones_hz) && p.allowed_tones_hz.length){
+        toneRange = p.allowed_tones_hz[0] + '–' + p.allowed_tones_hz[p.allowed_tones_hz.length - 1] + ' Hz';
+      }
+
+      const friendlyName = (p.decoder_profile === 'kiwi') ? 'Radio CW' : ((p.decoder_profile === 'clean') ? 'Clean CW' : (p.decoder_profile || 'unknown'));
+      status.textContent =
+        'Active: ' + friendlyName +
+        ' | mode: ' + (p.tone_mode || '?') +
+        ' | target: ' + (p.target_tone_hz || '?') + ' Hz' +
+        ' | filter: ' + (p.audio_filter_mode || '?') +
+        ' | ' + toneRange;
+    } catch(e) {
+      status.textContent = 'Profile status unavailable: ' + e.message;
+    }
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', refreshPanel);
+  } else {
+    refreshPanel();
+  }
+})();
+</script>
+
 </body>
 </html>
 """
@@ -2136,6 +2662,7 @@ def no_cache_response(body: str, mimetype: str) -> Response:
 
 def create_app(state, ring, config: Dict) -> Flask:
     app = Flask(__name__)
+    install_ai_routes(app, state, config)
 
     @app.route("/")
     def index():
@@ -2363,6 +2890,15 @@ def create_app(state, ring, config: Dict) -> Flask:
         "tft_screen_timeout_sec": int,
         "tft_screen_timeout_image": str,
         "audio_output_device": str,
+        "ai_enabled": bool,
+        "ai_provider": str,
+        "ai_model": str,
+        "ai_realtime_assist": bool,
+        "ai_require_confirmation": bool,
+        "ai_reply_style": str,
+        "ai_operator_callsign": str,
+        "ai_operator_name": str,
+        "ai_operator_qth": str,
         "cw_generator_tone_hz": int,
         "cw_generator_wpm": float,
         "cw_generator_farnsworth_wpm": float,
@@ -2385,6 +2921,15 @@ def create_app(state, ring, config: Dict) -> Flask:
         "word_gap_units": 6.0,
         "adaptive_word_gap_enabled": False,
         "audio_output_device": "plughw:2,0",
+        "ai_enabled": False,
+        "ai_provider": "local",
+        "ai_model": "gpt-4.1-mini",
+        "ai_realtime_assist": False,
+        "ai_require_confirmation": True,
+        "ai_reply_style": "short_cw",
+        "ai_operator_callsign": "N0CALL",
+        "ai_operator_name": "SEAN",
+        "ai_operator_qth": "NAPIER",
         "input_capture_percent": 70,
         "audio_filter_enabled": True,
         "audio_filter_mode": "wide",
@@ -2895,6 +3440,10 @@ def create_app(state, ring, config: Dict) -> Flask:
                 value = "sound"
             elif key == "tone_mode" and value not in ("session_auto", "auto", "fixed"):
                 value = "session_auto"
+            elif key == "ai_provider" and value not in ("local", "openai"):
+                value = "local"
+            elif key == "ai_model":
+                value = str(value or "gpt-4.1-mini").strip()[:80]
             elif key == "audio_filter_mode" and value not in ("off", "wide", "narrow", "custom"):
                 value = "wide"
             elif key in ("audio_filter_bandwidth_hz", "audio_filter_wide_hz", "audio_filter_narrow_hz", "audio_filter_max_hz"):
@@ -3127,5 +3676,80 @@ def create_app(state, ring, config: Dict) -> Flask:
                 "Cache-Control": "no-store",
             },
         )
+
+
+    # MW_DECODER_PROFILE_API_PHASE2_SAFE
+    @app.route("/api/decoder/profile", methods=["GET", "POST"])
+    def api_decoder_profile():
+        import json
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        cfg_path = Path("/opt/morse-whisperer-pi/config.json")
+        helper = Path("/opt/morse-whisperer-pi/tools/set_decoder_profile.py")
+
+        def read_profile():
+            cfg = json.loads(cfg_path.read_text())
+            tones = cfg.get("allowed_tones_hz") or []
+            return {
+                "ok": True,
+                "decoder_profile": cfg.get("decoder_profile", "unknown"),
+                "tone_mode": cfg.get("tone_mode"),
+                "target_tone_hz": cfg.get("target_tone_hz"),
+                "allowed_tones_hz": tones,
+                "audio_filter_mode": cfg.get("audio_filter_mode"),
+                "audio_filter_narrow_hz": cfg.get("audio_filter_narrow_hz"),
+                "copy_min_decoded_symbols": cfg.get("copy_min_decoded_symbols"),
+                "copy_max_failed_symbols": cfg.get("copy_max_failed_symbols"),
+                "copy_min_confidence": cfg.get("copy_min_confidence"),
+                "copy_min_snr": cfg.get("copy_min_snr"),
+                "decode_window_sec": cfg.get("decode_window_sec"),
+                "word_gap_units": cfg.get("word_gap_units"),
+            }
+
+        if request.method == "GET":
+            return jsonify(read_profile())
+
+        data = request.get_json(silent=True) or {}
+        profile = str(data.get("profile") or "").strip().lower()
+        restart = bool(data.get("restart", True))
+
+        if profile not in ("clean", "kiwi"):
+            return jsonify({"ok": False, "error": "profile must be clean or kiwi"}), 400
+
+        cp = subprocess.run(
+            [sys.executable, str(helper), profile],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        if cp.returncode != 0:
+            return jsonify({
+                "ok": False,
+                "error": "profile helper failed",
+                "stdout": cp.stdout,
+                "stderr": cp.stderr,
+            }), 500
+
+        result = read_profile()
+        result["stdout"] = cp.stdout
+        result["restart_requested"] = restart
+
+        if restart:
+            # Delay so the browser receives the response before this service restarts.
+            subprocess.Popen(
+                ["/bin/sh", "-lc", 'sleep 1; printf \'%s\\n\' \'restart requested\' "$(date -Is)" > /tmp/mw-profile-restart.log; /bin/systemctl restart morse-whisperer.service >> /tmp/mw-profile-restart.log 2>&1; printf \'%s\\n\' \'waiting for API reset\' "$(date -Is)" >> /tmp/mw-profile-restart.log; for i in $(seq 1 30); do /usr/bin/curl -fsS -X POST http://127.0.0.1:8080/api/reset >> /tmp/mw-profile-reset.log 2>&1 && printf \'%s\\n\' \'reset ok\' "$(date -Is)" >> /tmp/mw-profile-restart.log && exit 0; sleep 1; done; printf \'%s\\n\' \'reset failed after restart\' "$(date -Is)" >> /tmp/mw-profile-restart.log; exit 0'],  # MW_PROFILE_SWITCH_AUTO_CLEAR_REPAIRED_V1
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            result["message"] = "Profile saved. Restart and decoder clear requested."
+        else:
+            result["message"] = "Profile saved. Manual restart required."
+
+        return jsonify(result)
+
 
     return app

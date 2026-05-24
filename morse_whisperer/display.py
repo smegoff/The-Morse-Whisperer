@@ -339,15 +339,23 @@ class FramebufferDisplay:
 
         copy = (dec.get("stable_copy") or dec.get("copy") or "").strip()
 
+        # MW_TFT_DECODER_PROFILE_LABEL_V1
+        profile = str(cfg.get("decoder_profile") or "clean").strip().lower()
+        if profile in ("kiwi", "radio", "radio_cw"):
+            profile_label = "RADIO"
+        else:
+            profile_label = "CLEAN"
+        copy_label = f"STABLE COPY {profile_label}"
+
         # Main copy panel
         draw.rounded_rectangle((4, 40, self.width - 4, 140), radius=10, fill=panel2, outline=line)
-        draw.text((12, 46), "STABLE COPY", font=self.font_small, fill=muted)
+        draw.text((12, 46), copy_label, font=self.font_small, fill=muted)
 
         ip = local_ip()
         port = int(cfg.get("web_port", 8080))
         web_url = f"http://{ip}:{port}"
 
-        label_w, _ = self.measure_text(draw, "STABLE COPY", self.font_small)
+        label_w, _ = self.measure_text(draw, copy_label, self.font_small)
         url_left_min = 12 + label_w + 12
         url_right_margin = 22
         url_right = self.width - url_right_margin
