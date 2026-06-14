@@ -211,19 +211,19 @@ def frame_envelope(samples: np.ndarray, sample_rate: int, tone_hz: int, window_m
         return np.zeros(0, dtype=np.float32), np.zeros(0, dtype=np.float32)
     win = np.hanning(win_n).astype(np.float32)
     n_frames = 1 + (x.size - win_n) // hop_n
-    env = np.empty(n_frames, dtype=np.float32)
-    times = np.empty(n_frames, dtype=np.float32)
     base_t = np.arange(win_n, dtype=np.float32) / float(sample_rate)
     cosv = np.cos(2.0 * math.pi * tone_hz * base_t).astype(np.float32) * win
     sinv = np.sin(2.0 * math.pi * tone_hz * base_t).astype(np.float32) * win
     norm = max(1e-9, float(np.sum(win)))
-    for i in range(n_frames):
-        start = i * hop_n
-        seg = x[start:start + win_n]
-        c = float(np.dot(seg, cosv))
-        s = float(np.dot(seg, sinv))
-        env[i] = math.sqrt(c*c + s*s) / norm
-        times[i] = (start + win_n / 2.0) * 1000.0 / float(sample_rate)
+    starts = np.arange(n_frames, dtype=np.int64) * hop_n
+
+    # A strided frame view keeps the data zero-copy while matrix multiplication
+    # performs all frame dot products in compiled code.
+    frames = np.lib.stride_tricks.sliding_window_view(x, win_n)[::hop_n][:n_frames]
+    corr_cos = frames @ cosv
+    corr_sin = frames @ sinv
+    env = (np.sqrt(corr_cos * corr_cos + corr_sin * corr_sin) / norm).astype(np.float32)
+    times = ((starts.astype(np.float32) + win_n / 2.0) * 1000.0 / float(sample_rate)).astype(np.float32)
     # Mild smoothing, enough to suppress chatter but not smear 12 ms too badly.
     if env.size >= 3:
         env = np.convolve(env, np.array([0.25, 0.5, 0.25], dtype=np.float32), mode="same")
