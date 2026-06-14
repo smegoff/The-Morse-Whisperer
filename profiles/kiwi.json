@@ -99,6 +99,8 @@
   "radio_tone_max_hz": 2050,
   "radio_relative_activity": true,
   "radio_activity_min_contrast": 0.3,
+  "radio_search_min_rms": 0.0015,
+  "radio_search_min_peak": 0.006,
   "session_relock_tolerance_hz": 20,
   "session_relock_min_ratio": 2.0,
   "session_relock_min_snr": 7.0,

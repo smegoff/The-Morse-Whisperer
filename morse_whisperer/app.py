@@ -12,7 +12,7 @@ import numpy as np
 from .audio import AudioRing, start_capture
 from .config import load_config
 from .display import FramebufferDisplay
-from .dsp import DecodeResult, analyse_samples
+from .dsp import DecodeResult, analyse_samples, audio_metrics
 from .state import SharedState
 from .web import create_app
 from .buttons import SafeTwoButtonMonitor
@@ -415,6 +415,19 @@ class MorseWhispererApp:
             return False
         return True
 
+    def should_analyse_recent(self, samples: np.ndarray) -> tuple[bool, Dict]:
+        metrics = asdict(audio_metrics(samples))
+        if not bool(self.config.get("radio_keyed_tone_scoring", False)):
+            return True, metrics
+
+        min_rms = float(self.config.get("radio_search_min_rms", 0.0015))
+        min_peak = float(self.config.get("radio_search_min_peak", 0.006))
+        should_analyse = (
+            float(metrics.get("rms", 0.0)) >= min_rms
+            or float(metrics.get("peak", 0.0)) >= min_peak
+        )
+        return should_analyse, metrics
+
     def is_publishable(self, result: DecodeResult) -> bool:
         min_conf = float(self.config.get("copy_min_confidence", 0.85))
         min_snr = float(self.config.get("copy_min_snr", self.config.get("squelch_snr", 3.5)))
@@ -622,11 +635,15 @@ class MorseWhispererApp:
                 activity = False
 
                 if new_samples.size >= int(self.sample_rate * 0.25):
-                    recent_result = analyse_samples(new_samples, self.detect_config())
-                    recent_audio = dict(recent_result.audio)
-                    recent_audio.update(audio)
-                    audio = recent_audio
-                    activity = self.is_recent_activity(recent_result)
+                    should_analyse, preliminary_audio = self.should_analyse_recent(new_samples)
+                    preliminary_audio.update(audio)
+                    audio = preliminary_audio
+                    if should_analyse:
+                        recent_result = analyse_samples(new_samples, self.detect_config())
+                        recent_audio = dict(recent_result.audio)
+                        recent_audio.update(audio)
+                        audio = recent_audio
+                        activity = self.is_recent_activity(recent_result)
 
                 now = time.time()
 

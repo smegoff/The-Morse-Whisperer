@@ -42,6 +42,8 @@ PROFILE_KEYS = {
     "radio_tone_max_hz",
     "radio_relative_activity",
     "radio_activity_min_contrast",
+    "radio_search_min_rms",
+    "radio_search_min_peak",
     "session_relock_tolerance_hz",
     "session_relock_min_ratio",
     "session_relock_min_snr",

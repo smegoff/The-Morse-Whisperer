@@ -7,6 +7,8 @@
 - Added 5 Hz fine search around the strongest coarse tone candidates.
 - Added relative weak-signal activity detection and guarded tone relocking.
 - Bounded tone scoring to recent audio to keep long sessions responsive.
+- Added a near-silence pre-analysis gate to keep Radio mode lightweight while
+  retaining signals above the appliance noise floor.
 - Added synthetic weak-signal/interference regression tests and a labelled WAV
   evaluation tool.
 - Kept Clean CW on the original tone-selection path.

@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+
 from morse_whisperer.app import MorseWhispererApp
 
 
@@ -23,6 +25,20 @@ class RuntimeResetTests(unittest.TestCase):
 
         self.assertIs(app.display, display)
         self.assertIs(app.buttons, buttons)
+
+    def test_radio_preanalysis_gate_skips_only_near_silence(self) -> None:
+        app = MorseWhispererApp()
+        app.config.update({
+            "radio_keyed_tone_scoring": True,
+            "radio_search_min_rms": 0.0015,
+            "radio_search_min_peak": 0.006,
+        })
+
+        quiet = np.full(8000, 0.0002, dtype=np.float32)
+        weak = np.sin(2 * np.pi * 675 * np.arange(8000) / 8000.0).astype(np.float32) * 0.004
+
+        self.assertFalse(app.should_analyse_recent(quiet)[0])
+        self.assertTrue(app.should_analyse_recent(weak)[0])
 
 
 class ProfileSwitchTests(unittest.TestCase):
