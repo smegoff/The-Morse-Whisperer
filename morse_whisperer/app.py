@@ -48,6 +48,8 @@ class MorseWhispererApp:
         self.squelch_open = False
         self.session_tone_hz: Optional[int] = None
         self.session_tone_reason = "none"
+        self.pending_tone_hz: Optional[int] = None
+        self.pending_tone_count = 0
 
         self.last_candidate_copy = ""
         self.last_candidate_raw = ""
@@ -195,6 +197,8 @@ class MorseWhispererApp:
         if clear_tone:
             self.session_tone_hz = None
             self.session_tone_reason = "none"
+            self.pending_tone_hz = None
+            self.pending_tone_count = 0
 
     def add_decode_history(self, result: DecodeResult, events) -> None:
         try:
@@ -272,6 +276,44 @@ class MorseWhispererApp:
         else:
             self.session_tone_hz = fallback
             self.session_tone_reason = f"fallback weak tone ratio={result.winner_ratio:.1f} snr={result.snr_db:.1f}"
+
+    def consider_session_relock(self, result: DecodeResult | None) -> None:
+        if not result or not self.dynamic_tone_enabled() or not self.session_tone_hz:
+            return
+
+        candidate = int(result.selected_tone_hz)
+        tolerance = int(self.config.get("session_relock_tolerance_hz", 20))
+        if abs(candidate - int(self.session_tone_hz)) <= tolerance:
+            self.pending_tone_hz = None
+            self.pending_tone_count = 0
+            return
+
+        min_ratio = float(self.config.get("session_relock_min_ratio", 2.0))
+        min_snr = float(self.config.get("session_relock_min_snr", 7.0))
+        min_contrast = float(self.config.get("session_relock_min_contrast", 0.35))
+        if (
+            result.winner_ratio < min_ratio
+            or result.snr_db < min_snr
+            or result.envelope_contrast < min_contrast
+        ):
+            self.pending_tone_hz = None
+            self.pending_tone_count = 0
+            return
+
+        if self.pending_tone_hz is not None and abs(candidate - self.pending_tone_hz) <= tolerance:
+            self.pending_tone_count += 1
+        else:
+            self.pending_tone_hz = candidate
+            self.pending_tone_count = 1
+
+        required = max(2, int(self.config.get("session_relock_confirmations", 3)))
+        if self.pending_tone_count >= required:
+            old = self.session_tone_hz
+            self.session_tone_hz = candidate
+            self.session_tone_reason = f"relocked {old}->{candidate} Hz"
+            self.pending_tone_hz = None
+            self.pending_tone_count = 0
+            self.state.append_status(f"Radio tone relocked: {old} Hz -> {candidate} Hz")
 
     def append_live_session(self, samples: np.ndarray) -> None:
         if samples.size == 0:
@@ -355,12 +397,18 @@ class MorseWhispererApp:
 
         if recent_result.reason not in ("ok", "target_tone_mismatch"):
             return False
-        if level in ("IDLE", "LOW"):
-            return False
-        if rms < min_rms:
-            return False
-        if peak < min_peak:
-            return False
+        relative_activity = bool(self.config.get("radio_relative_activity", False))
+        min_contrast = float(self.config.get("radio_activity_min_contrast", 0.30))
+        if relative_activity:
+            if recent_result.envelope_contrast < min_contrast:
+                return False
+        else:
+            if level in ("IDLE", "LOW"):
+                return False
+            if rms < min_rms:
+                return False
+            if peak < min_peak:
+                return False
         if recent_result.snr_db < min_snr:
             return False
         if recent_result.marks < min_marks:
@@ -443,6 +491,8 @@ class MorseWhispererApp:
                 "events": result.events,
             "decoded_symbols": result.decoded_symbols,
             "failed_symbols": result.failed_symbols,
+            "envelope_contrast": result.envelope_contrast,
+            "envelope_transitions": result.envelope_transitions,
             "reason": result.reason,
         })
         return base
@@ -589,6 +639,8 @@ class MorseWhispererApp:
                             self.lock_session_tone(recent_result)
                         elif self.session_tone_hz is None:
                             self.lock_session_tone(recent_result)
+                        else:
+                            self.consider_session_relock(recent_result)
 
                         self.last_activity_at = now
                         self.append_live_session(new_samples)

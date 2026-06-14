@@ -131,9 +131,9 @@ decoded: CQ CQ DE ZL1SXG ZL1SXG K
 
 ### Radio CW improvements
 
-- Improve Radio CW tone locking across 400–2000 Hz while avoiding constant heterodynes or whistles.
-- Prefer keyed envelope behaviour over raw tone power when selecting a candidate.
-- Add tone-lock decay and relock strategy.
+- Grow the labelled real-radio WAV corpus and track character error rate.
+- Tune keyed-envelope scoring against heterodynes, whistles, QSB, and multiple stations.
+- Continue improving tone-lock decay and relock behavior from recorded evidence.
 - Keep Clean CW behaviour unchanged.
 
 ### UI/TFT polish

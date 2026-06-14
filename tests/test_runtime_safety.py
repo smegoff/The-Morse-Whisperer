@@ -70,6 +70,46 @@ class ProfileSwitchTests(unittest.TestCase):
             self.assertEqual(result["input_capture_percent"], 17)
             self.assertFalse((app_dir / "config.json.tmp").exists())
 
+    def test_clean_switch_removes_radio_only_keys(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        helper = repo / "tools" / "set_decoder_profile.py"
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            app_dir = Path(tmp_dir)
+            (app_dir / "profiles").mkdir()
+            (app_dir / "profiles" / "clean.json").write_text(
+                json.dumps(
+                    {
+                        "target_tone_hz": 700,
+                        "decoder_profile": "clean",
+                        "decoder_profile_name": "Clean CW",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (app_dir / "config.json").write_text(
+                json.dumps(
+                    {
+                        "target_tone_hz": 650,
+                        "decoder_profile": "kiwi",
+                        "radio_keyed_tone_scoring": True,
+                        "radio_fine_tone_search": True,
+                        "audio_device": "plughw:9,0",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            env = dict(os.environ)
+            env["MW_APP_DIR"] = str(app_dir)
+            subprocess.run([sys.executable, str(helper), "clean"], check=True, env=env)
+
+            result = json.loads((app_dir / "config.json").read_text(encoding="utf-8"))
+            self.assertEqual(result["decoder_profile"], "clean")
+            self.assertNotIn("radio_keyed_tone_scoring", result)
+            self.assertNotIn("radio_fine_tone_search", result)
+            self.assertEqual(result["audio_device"], "plughw:9,0")
+
 
 if __name__ == "__main__":
     unittest.main()

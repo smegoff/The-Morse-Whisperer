@@ -73,6 +73,16 @@ copy_min_snr: 7.0
 decode_window_sec: 16
 ```
 
+Radio CW also enables a separate signal-acquisition path:
+
+- coarse 50 Hz search followed by 5 Hz refinement
+- keyed-envelope scoring that rejects steady carriers
+- relative activity detection for weak but well-keyed signals
+- guarded tone relocking after repeated evidence
+
+These settings are intentionally absent from the Clean profile, which retains
+the known-good legacy tone selection behavior.
+
 ## Switching
 
 Command-line:
@@ -106,3 +116,28 @@ unchanged. A timestamped pre-switch backup is stored under:
 Do not tune Clean CW to fix radio signals.
 
 Tune only the Radio CW profile for real receiver/KiwiSDR work.
+
+## Radio evaluation corpus
+
+Labelled WAV files can be evaluated with:
+
+```bash
+python3 tools/evaluate_wavs.py path/to/manifest.json
+```
+
+Manifest example:
+
+```json
+{
+  "cases": [
+    {
+      "wav": "weak-qsb-675hz.wav",
+      "expected": "CQ CQ DE ZL1SXG K",
+      "profile": "../../profiles/kiwi.json"
+    }
+  ]
+}
+```
+
+The evaluator reports the selected tone, decoded text, confidence, and
+character error rate for each case.

@@ -13,6 +13,8 @@ Main components:
 - `tools/restart_after_profile_switch.py` performs the delayed service restart
   and decoder reset without inline shell quoting.
 - `tools/smoke_test.py` performs non-destructive API health checks.
+- `tools/evaluate_wavs.py` measures labelled WAV files and reports character
+  error rates.
 
 The repo intentionally does not include virtual environments, patch backups, logs, NetworkManager Wi-Fi secrets, or machine-specific backup files.
 
@@ -22,3 +24,6 @@ Run local regression checks with:
 python3 -m unittest discover -s tests -v
 python3 -m compileall -q morse_whisperer tools
 ```
+
+Radio-specific DSP must remain behind profile flags in `profiles/kiwi.json`.
+The Clean profile is the protected regression baseline.

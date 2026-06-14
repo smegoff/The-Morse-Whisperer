@@ -61,6 +61,8 @@ class DecodeResult:
     spaces: int
     decoded_symbols: int
     failed_symbols: int
+    envelope_contrast: float = 0.0
+    envelope_transitions: int = 0
     audio_filter_enabled: bool = False
     audio_filter_mode: str = "off"
     audio_filter_low_hz: float = 0.0
@@ -117,9 +119,86 @@ def tone_power(samples: np.ndarray, sample_rate: int, tone_hz: float) -> float:
     s = float(np.dot(xw, np.sin(2.0 * math.pi * tone_hz * t)))
     return (c * c + s * s) / max(1.0, float(np.dot(win, win)))
 
-def rank_tones(samples: np.ndarray, sample_rate: int, tones: Sequence[int]) -> List[ToneScore]:
-    scores = [ToneScore(int(t), float(tone_power(samples, sample_rate, t))) for t in tones]
+def keyed_envelope_quality(
+    samples: np.ndarray,
+    sample_rate: int,
+    tone_hz: int,
+    window_ms: float = 12.0,
+    hop_ms: float = 8.0,
+) -> Tuple[float, int]:
+    env, _times = frame_envelope(samples, sample_rate, tone_hz, window_ms, hop_ms)
+    if env.size < 4:
+        return 0.0, 0
+
+    floor = float(np.percentile(env, 20))
+    ceiling = float(np.percentile(env, 90))
+    contrast = max(0.0, min(1.0, (ceiling - floor) / max(1e-9, ceiling)))
+    threshold = floor + 0.5 * max(1e-9, ceiling - floor)
+    keyed = env >= threshold
+    transitions = int(np.count_nonzero(keyed[1:] != keyed[:-1]))
+    occupancy = float(np.mean(keyed))
+
+    # A steady carrier has high power but very few transitions and near-zero
+    # envelope contrast. Real CW normally has both keyed and quiet frames.
+    occupancy_score = max(0.0, 1.0 - abs(occupancy - 0.45) / 0.45)
+    transition_score = min(1.0, transitions / 6.0)
+    quality = contrast * (0.35 + 0.35 * occupancy_score + 0.30 * transition_score)
+    return float(max(0.0, min(1.0, quality))), transitions
+
+
+def _radio_candidate_score(samples: np.ndarray, sample_rate: int, tone_hz: int, config: Dict) -> float:
+    window_ms = float(config.get("radio_tone_score_window_ms", 40))
+    hop_ms = float(config.get("radio_tone_score_hop_ms", 10))
+    env, _times = frame_envelope(
+        samples,
+        sample_rate,
+        tone_hz,
+        window_ms,
+        hop_ms,
+    )
+    if env.size < 4:
+        return 0.0
+
+    floor = float(np.percentile(env, 20))
+    ceiling = float(np.percentile(env, 90))
+    dynamic_amplitude = max(0.0, ceiling - floor)
+    quality, _transitions = keyed_envelope_quality(
+        samples,
+        sample_rate,
+        tone_hz,
+        window_ms,
+        hop_ms,
+    )
+    quality_floor = float(config.get("radio_tone_keyed_score_floor", 0.08))
+    return dynamic_amplitude * dynamic_amplitude * max(quality_floor, quality)
+
+
+def rank_tones(samples: np.ndarray, sample_rate: int, tones: Sequence[int], config: Optional[Dict] = None) -> List[ToneScore]:
+    keyed_scoring = bool(config and config.get("radio_keyed_tone_scoring", False))
+    if keyed_scoring:
+        scores = [
+            ToneScore(int(t), _radio_candidate_score(samples, sample_rate, int(t), config or {}))
+            for t in tones
+        ]
+    else:
+        scores = [ToneScore(int(t), float(tone_power(samples, sample_rate, t))) for t in tones]
     return sorted(scores, key=lambda z: z.score, reverse=True)
+
+
+def radio_refined_tones(coarse_ranking: Sequence[ToneScore], config: Dict) -> List[int]:
+    step = max(1, int(config.get("radio_tone_fine_step_hz", 5)))
+    span = max(step, int(config.get("radio_tone_fine_span_hz", 30)))
+    count = max(1, int(config.get("radio_tone_coarse_candidates", 4)))
+    low = int(config.get("radio_tone_min_hz", 300))
+    high = int(config.get("radio_tone_max_hz", 2200))
+
+    tones = set()
+    for candidate in list(coarse_ranking)[:count]:
+        centre = int(candidate.tone_hz)
+        start = centre - span
+        stop = centre + span
+        tones.update(range(start, stop + 1, step))
+    return sorted(t for t in tones if low <= t <= high)
 
 def frame_envelope(samples: np.ndarray, sample_rate: int, tone_hz: int, window_ms: float, hop_ms: float) -> Tuple[np.ndarray, np.ndarray]:
     x = _as_float_audio(samples)
@@ -573,17 +652,39 @@ def analyse_samples(samples: np.ndarray, config: Dict, tone_override: Optional[s
             target = int(float(tone_override))
     raw_samples = samples
     metrics = audio_metrics(raw_samples)
-    ranking = rank_tones(raw_samples, sr, allowed)
+    ranking_samples = raw_samples
+    if bool(config.get("radio_keyed_tone_scoring", False)):
+        max_score_sec = max(0.5, float(config.get("radio_tone_score_max_sec", 4.0)))
+        max_score_samples = int(sr * max_score_sec)
+        if ranking_samples.size > max_score_samples:
+            ranking_samples = ranking_samples[-max_score_samples:]
+
+    ranking = rank_tones(ranking_samples, sr, allowed, config)
+    if tone_mode == "auto" and bool(config.get("radio_fine_tone_search", False)) and ranking:
+        fine_tones = radio_refined_tones(ranking, config)
+        if fine_tones:
+            ranking = rank_tones(ranking_samples, sr, fine_tones, config)
     if ranking:
         selected = int(ranking[0].tone_hz) if tone_mode == "auto" else target
         winner = float(ranking[0].score)
-        second = float(ranking[1].score) if len(ranking) > 1 else 1e-12
+        competitor_separation = int(config.get("radio_tone_competitor_separation_hz", 25))
+        competitors = [
+            item for item in ranking[1:]
+            if abs(int(item.tone_hz) - int(ranking[0].tone_hz)) >= competitor_separation
+        ]
+        second = float(competitors[0].score) if competitors else (
+            float(ranking[1].score) if len(ranking) > 1 else 1e-12
+        )
         median = float(np.median([r.score for r in ranking[1:]])) if len(ranking) > 1 else second
     else:
         selected = target
         winner = second = median = 0.0
-    selected_score = float(tone_power(raw_samples, sr, selected))
-    noise_score = max(1e-12, median)
+    selected_score = float(tone_power(ranking_samples, sr, selected))
+    raw_noise_scores = [
+        float(tone_power(ranking_samples, sr, item.tone_hz))
+        for item in ranking[1:]
+    ]
+    noise_score = max(1e-12, float(np.median(raw_noise_scores)) if raw_noise_scores else selected_score)
     winner_ratio = float((winner + 1e-12) / (second + 1e-12))
     snr_db = float(10.0 * math.log10((selected_score + 1e-12) / noise_score))
     mismatch = bool(tone_mode != "auto" and ranking and abs(ranking[0].tone_hz - target) >= 75 and winner_ratio >= 2.0)
@@ -593,6 +694,13 @@ def analyse_samples(samples: np.ndarray, config: Dict, tone_override: Optional[s
     filter_meta = mw_filter_metadata(filter_enabled, filter_mode, filter_low, filter_high, filter_bw)
 
     env, times = frame_envelope(filter_samples, sr, selected, float(config.get("window_ms", 12)), float(config.get("hop_ms", 8)))
+    envelope_contrast, envelope_transitions = keyed_envelope_quality(
+        filter_samples,
+        sr,
+        selected,
+        float(config.get("window_ms", 12)),
+        float(config.get("hop_ms", 8)),
+    )
     events_raw, th, lo, hi = schmitt_events(env, times, float(config.get("threshold_bias", 0.48)), float(config.get("hop_ms", 8)), float(config.get("event_comp_ms", 0.0)))
     dot_ms = 1200.0 / float(wpm_override) if wpm_override else estimate_dot_ms(events_raw, float(config.get("initial_wpm", 18.75)))
     events = clean_events_by_dot(events_raw, dot_ms, float(config.get("min_element_fraction", 0.45)))
@@ -655,6 +763,8 @@ def analyse_samples(samples: np.ndarray, config: Dict, tone_override: Optional[s
         spaces=spaces,
         decoded_symbols=decoded,
         failed_symbols=failed,
+        envelope_contrast=envelope_contrast,
+        envelope_transitions=envelope_transitions,
         audio_filter_enabled=bool(filter_meta.get("audio_filter_enabled", False)),
         audio_filter_mode=str(filter_meta.get("audio_filter_mode", "off")),
         audio_filter_low_hz=float(filter_meta.get("audio_filter_low_hz", 0.0)),

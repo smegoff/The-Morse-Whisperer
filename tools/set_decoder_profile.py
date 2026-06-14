@@ -28,6 +28,25 @@ PROFILE_KEYS = {
     "decoder_profile_name",
     "target_tone_hz",
     "threshold_bias",
+    "radio_keyed_tone_scoring",
+    "radio_tone_keyed_score_floor",
+    "radio_tone_score_window_ms",
+    "radio_tone_score_hop_ms",
+    "radio_tone_score_max_sec",
+    "radio_fine_tone_search",
+    "radio_tone_fine_step_hz",
+    "radio_tone_fine_span_hz",
+    "radio_tone_coarse_candidates",
+    "radio_tone_competitor_separation_hz",
+    "radio_tone_min_hz",
+    "radio_tone_max_hz",
+    "radio_relative_activity",
+    "radio_activity_min_contrast",
+    "session_relock_tolerance_hz",
+    "session_relock_min_ratio",
+    "session_relock_min_snr",
+    "session_relock_min_contrast",
+    "session_relock_confirmations",
 }
 
 def usage():
@@ -79,6 +98,8 @@ def main():
     for key in PROFILE_KEYS:
         if key in profile_values:
             new[key] = profile_values[key]
+        else:
+            new.pop(key, None)
 
     new["decoder_profile"] = profile
     new["decoder_profile_name"] = PROFILE_NAMES[profile]

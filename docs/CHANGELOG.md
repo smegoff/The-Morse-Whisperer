@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-06-14 Radio acquisition update
+
+- Added keyed-envelope tone scoring for Radio CW so steady carriers no longer
+  win solely through raw power.
+- Added 5 Hz fine search around the strongest coarse tone candidates.
+- Added relative weak-signal activity detection and guarded tone relocking.
+- Bounded tone scoring to recent audio to keep long sessions responsive.
+- Added synthetic weak-signal/interference regression tests and a labelled WAV
+  evaluation tool.
+- Kept Clean CW on the original tone-selection path.
+
 ## 2026-06-14
 
 - Preserved display and button controller references across decoder resets.
