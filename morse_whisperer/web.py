@@ -3688,6 +3688,7 @@ def create_app(state, ring, config: Dict) -> Flask:
 
         cfg_path = Path("/opt/morse-whisperer-pi/config.json")
         helper = Path("/opt/morse-whisperer-pi/tools/set_decoder_profile.py")
+        restart_helper = Path("/opt/morse-whisperer-pi/tools/restart_after_profile_switch.py")
 
         def read_profile():
             cfg = json.loads(cfg_path.read_text())
@@ -3738,9 +3739,8 @@ def create_app(state, ring, config: Dict) -> Flask:
         result["restart_requested"] = restart
 
         if restart:
-            # Delay so the browser receives the response before this service restarts.
             subprocess.Popen(
-                ["/bin/sh", "-lc", 'sleep 1; printf \'%s\\n\' \'restart requested\' "$(date -Is)" > /tmp/mw-profile-restart.log; /bin/systemctl restart morse-whisperer.service >> /tmp/mw-profile-restart.log 2>&1; printf \'%s\\n\' \'waiting for API reset\' "$(date -Is)" >> /tmp/mw-profile-restart.log; for i in $(seq 1 30); do /usr/bin/curl -fsS -X POST http://127.0.0.1:8080/api/reset >> /tmp/mw-profile-reset.log 2>&1 && printf \'%s\\n\' \'reset ok\' "$(date -Is)" >> /tmp/mw-profile-restart.log && exit 0; sleep 1; done; printf \'%s\\n\' \'reset failed after restart\' "$(date -Is)" >> /tmp/mw-profile-restart.log; exit 0'],  # MW_PROFILE_SWITCH_AUTO_CLEAR_REPAIRED_V1
+                [sys.executable, str(restart_helper)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,

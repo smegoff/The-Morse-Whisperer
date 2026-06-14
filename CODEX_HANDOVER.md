@@ -16,12 +16,14 @@ Working features:
 - Updated one-shot installer.
 - Updated documentation.
 
-Recent commits:
+Baseline commits before the 2026-06-14 maintenance review:
 
 ```text
 bd358cd Update documentation and one-shot installer
 31b26b5 Update appliance profiles, web switch, TFT labels, and docs
 ```
+
+Always fetch before comparing the deployed revision with GitHub.
 
 ## Profiles
 
@@ -67,11 +69,17 @@ install.sh             one-shot installer/rebuild script
 
 ```bash
 cd /opt/morse-whisperer-pi
-git status --short
-git log --oneline -5
+git -c safe.directory=/opt/morse-whisperer-pi fetch origin
+git -c safe.directory=/opt/morse-whisperer-pi status --short --branch
+git -c safe.directory=/opt/morse-whisperer-pi log --oneline -5
 systemctl is-active morse-whisperer.service
 /opt/morse-whisperer-pi/tools/set_decoder_profile.py show
+/opt/morse-whisperer-pi/tools/smoke_test.py
 ```
+
+`config.json` is a runtime file as well as the clean install baseline. It is
+normally modified on the appliance by profile selection and local settings.
+Treat source-code or untracked-file drift separately from this expected change.
 
 Useful API checks:
 
@@ -103,6 +111,7 @@ decoded: CQ CQ DE ZL1SXG ZL1SXG K
 - Register Flask routes inside `create_app()` before `return app`.
 - Avoid fragile nested shell quoting in Python source.
 - If self-test passes but live CW fails, check the physical audio path before changing DSP.
+- The web UI has no authentication; keep port 8080 on a trusted LAN.
 - Do not force-push.
 
 ## Future roadmap
@@ -110,16 +119,14 @@ decoded: CQ CQ DE ZL1SXG ZL1SXG K
 ### Repo cleanup
 
 - Audit repo contents and remove accidental runtime files if any are present.
-- Confirm `.gitignore` excludes virtualenvs, patch backups, recovery archives, audio captures, logs, and secrets.
-- Decide whether `config.json` should remain committed or become `config.example.json` plus deployment docs.
-- Add `requirements.txt` or `pyproject.toml`.
-- Add a lightweight smoke-test script.
+- Keep `.gitignore` coverage for virtualenvs, patch backups, recovery archives, audio captures, logs, and secrets.
+- Revisit whether the clean baseline should remain `config.json` long term.
+- Keep `requirements.txt` aligned with imports.
+- Extend the lightweight smoke test as APIs change.
 
 ### Safer profile switching
 
-- Move profile switch, restart, and clear logic out of inline shell strings in `web.py` and into a dedicated helper.
 - Add smoke tests for profile API and reset API.
-- Make profile switching atomic.
 - Improve web UI error reporting if restart fails.
 
 ### Radio CW improvements
@@ -162,8 +169,8 @@ Current priorities:
 1. Clean up the repo without breaking the working appliance.
 2. Preserve the known-good Clean CW profile.
 3. Preserve the working Radio CW profile.
-4. Refactor profile switch, restart, and clear logic safely out of inline web.py shell strings.
-5. Add smoke tests and a requirements file.
+4. Keep profile switch, restart, and clear logic in dedicated tested helpers.
+5. Expand smoke tests around state-changing APIs.
 6. Keep install.sh idempotent and document assumptions.
 
 Before editing, check git status and service health. Before changing runtime-critical files, create a local backup. Never force push. Prefer small commits and pull requests.

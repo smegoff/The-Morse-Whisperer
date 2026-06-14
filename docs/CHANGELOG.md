@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-06-14
+
+- Preserved display and button controller references across decoder resets.
+- Made profile writes atomic and limited switching to decoder tuning keys.
+- Replaced the inline profile-restart shell command with a Python helper.
+- Preserved live `config.json` during installer rebuilds.
+- Added service audio/video groups and optional AI environment loading to the
+  installed unit.
+- Added runtime regression tests, an API smoke test, and deployment/security
+  documentation.
+
 ## 2026-05-24
 
 ### Added

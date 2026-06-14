@@ -8,6 +8,9 @@ From a cloned or extracted repository:
 sudo ./install.sh
 ```
 
+Do not pipe only `install.sh` from GitHub into a shell. The installer requires
+the rest of the repository beside it.
+
 The installer:
 
 - installs required apt packages
@@ -20,6 +23,7 @@ The installer:
 - installs profile-switch polkit permissions so the web UI can restart only `morse-whisperer.service`
 - validates Python files
 - enables and starts the main and button services
+- preserves an existing `/opt/morse-whisperer-pi/config.json` during rebuilds
 
 ## Services
 
@@ -47,6 +51,16 @@ sudo systemctl enable --now morse-whisperer-network-fallback.service
 The application directory is owned by `root:morsewhisperer`.
 
 `config.json` and the runtime profile backup directory are writable by the `morsewhisperer` group so the web profile switch can save profile changes.
+
+The committed `config.json` is the clean baseline for a fresh appliance. A
+working appliance normally has local changes in this file for its selected
+profile, capture gain, callsign, and other machine settings.
+
+## Network boundary
+
+The Flask UI binds to `0.0.0.0:8080` by default and has no authentication.
+Operate it on a trusted LAN only. Do not expose port 8080 directly to the
+internet.
 
 ## Web profile restart permission
 

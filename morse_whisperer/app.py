@@ -126,8 +126,6 @@ class MorseWhispererApp:
         self.last_candidate_copy = ""
         self.last_candidate_raw = ""
 
-        self.display = None
-        self.buttons = None
         self.last_total_samples = None
         self.ring.clear()
 
@@ -529,8 +527,6 @@ class MorseWhispererApp:
         self.last_candidate_copy = ""
         self.last_candidate_raw = ""
 
-        self.display = None
-        self.buttons = None
         self.last_total_samples = None
 
         # Clear the audio ring again from the decoder side as well.

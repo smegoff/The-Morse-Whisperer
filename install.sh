@@ -5,6 +5,14 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="/opt/morse-whisperer-pi"
 SERVICE_USER="morsewhisperer"
 SERVICE_GROUP="morsewhisperer"
+CONFIG_BACKUP=""
+
+cleanup() {
+  if [ -n "$CONFIG_BACKUP" ] && [ -f "$CONFIG_BACKUP" ]; then
+    rm -f "$CONFIG_BACKUP"
+  fi
+}
+trap cleanup EXIT
 
 echo "[mw-install] The Morse Whisperer one-shot installer"
 echo "[mw-install] Source: $SRC_DIR"
@@ -39,6 +47,12 @@ echo
 echo "[mw-install] Creating app directory"
 mkdir -p "$APP_DIR"
 
+if [ -f "$APP_DIR/config.json" ]; then
+  CONFIG_BACKUP="$(mktemp)"
+  cp -a "$APP_DIR/config.json" "$CONFIG_BACKUP"
+  echo "[mw-install] Preserving existing runtime config"
+fi
+
 rsync -a --delete \
   --exclude '.git' \
   --exclude 'venv' \
@@ -50,11 +64,15 @@ rsync -a --delete \
   --exclude '*.tmp' \
   "$SRC_DIR"/ "$APP_DIR"/
 
+if [ -n "$CONFIG_BACKUP" ]; then
+  cp -a "$CONFIG_BACKUP" "$APP_DIR/config.json"
+fi
+
 echo
 echo "[mw-install] Creating Python venv"
 python3 -m venv --system-site-packages "$APP_DIR/venv"
 "$APP_DIR/venv/bin/python" -m pip install --upgrade pip wheel
-"$APP_DIR/venv/bin/python" -m pip install flask numpy pillow
+"$APP_DIR/venv/bin/python" -m pip install -r "$APP_DIR/requirements.txt"
 
 echo
 echo "[mw-install] Ensuring profile files exist"
@@ -204,8 +222,10 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_GROUP
+SupplementaryGroups=audio video
 WorkingDirectory=$APP_DIR
 Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/morse-whisperer/ai.env
 ExecStartPre=/usr/bin/timeout 6s $APP_DIR/venv/bin/python $APP_DIR/tools/safe_splash_v2.py
 ExecStart=$APP_DIR/venv/bin/python -m morse_whisperer
 Restart=on-failure

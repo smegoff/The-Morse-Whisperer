@@ -7,6 +7,12 @@ systemctl is-active morse-whisperer.service
 sudo systemctl status morse-whisperer.service --no-pager -l
 ```
 
+Run the non-destructive API smoke test:
+
+```bash
+/opt/morse-whisperer-pi/tools/smoke_test.py
+```
+
 ## Check profile
 
 ```bash
@@ -82,6 +88,24 @@ The one-shot installer creates a polkit rule to allow the service user/group to 
 ```text
 /etc/polkit-1/rules.d/49-morse-whisperer-profile-restart.rules
 ```
+
+Only decoder tuning keys are replaced during a profile switch. Appliance
+settings such as audio devices, capture gain, callsign, display settings, and
+AI settings are preserved.
+
+## Inspect the deployed Git checkout
+
+The application directory is owned by `root:morsewhisperer`, so the `decoder`
+login should use:
+
+```bash
+cd /opt/morse-whisperer-pi
+git -c safe.directory=/opt/morse-whisperer-pi status --short --branch
+git -c safe.directory=/opt/morse-whisperer-pi log --oneline -5
+```
+
+A modified `config.json` is normal on a running appliance. Source-code changes
+or untracked source files are not.
 
 ## TFT display
 

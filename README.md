@@ -19,8 +19,13 @@ It provides:
 Install or rebuild from a repo checkout:
 
 ```bash
+git clone https://github.com/smegoff/The-Morse-Whisperer.git
+cd The-Morse-Whisperer
 sudo ./install.sh
 ```
+
+On rebuilds, the installer preserves the appliance's existing
+`/opt/morse-whisperer-pi/config.json`.
 
 Open the web UI:
 
@@ -61,6 +66,9 @@ Show the current profile:
 ```
 
 The web UI also has a Decoder Profile selector. Switching profiles from the web UI saves the selected profile, restarts the service, reloads the selected profile, and clears runtime decode state.
+
+Profile switching changes decoder tuning only. Hardware, operator, network,
+display, generator, and AI settings are preserved.
 
 ## Clean CW verification
 
@@ -118,6 +126,12 @@ Known TFT button mapping on this build:
 | 4 | GPIO18 | Clear | Full reset |
 
 Avoid reusing LCD control pins for buttons or other GPIO functions.
+
+## Network trust
+
+The web UI listens on the appliance network interface and does not currently
+provide authentication. Use it only on a trusted LAN. Do not port-forward TCP
+8080 or expose the appliance directly to the internet.
 
 ## Important troubleshooting note
 

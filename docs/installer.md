@@ -1,9 +1,14 @@
 # Installer Guide
 
-The installer is designed to be pasted into a fresh Raspberry Pi OS Lite SSH session.
+The installer must be run from a complete repository checkout because it copies
+the application, profiles, assets, tools, and service files.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/smegoff/The-Morse-Whisperer/main/install.sh | sudo bash
+sudo apt-get update
+sudo apt-get install -y git
+git clone https://github.com/smegoff/The-Morse-Whisperer.git
+cd The-Morse-Whisperer
+sudo ./install.sh
 ```
 
 It performs these steps:
@@ -14,7 +19,8 @@ It performs these steps:
 4. Creates a Python virtual environment.
 5. Installs systemd services.
 6. Installs the Polkit rule for Wi-Fi management.
-7. Adds the known-good TFT overlay to `/boot/firmware/config.txt`.
+7. Preserves an existing appliance `config.json` during rebuilds.
 8. Starts the appliance service.
 
-If the TFT overlay changed, reboot.
+The known-good TFT overlay is documented in `docs/tft-display.md`; the installer
+does not rewrite `/boot/firmware/config.txt` automatically.

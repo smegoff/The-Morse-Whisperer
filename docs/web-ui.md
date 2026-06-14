@@ -13,3 +13,9 @@ Tabs:
 - **Network Setup**: view IP status, scan Wi-Fi, connect to a network.
 
 The top of the page shows stable COPY, RAW, tone lock, signal quality, and operator controls.
+
+## Security boundary
+
+The UI has no authentication and includes state-changing controls for decoder
+settings, Wi-Fi, audio playback, and service profile changes. Keep the
+appliance on a trusted LAN and do not expose port 8080 to the internet.

@@ -93,6 +93,14 @@ Use the Decoder Profile selector.
 
 Switching profiles from the web UI saves the selected profile, restarts the service, reloads the config, and clears runtime decode state.
 
+The switcher overlays only decoder-profile tuning keys and writes
+`config.json` atomically. Machine-specific and operator settings remain
+unchanged. A timestamped pre-switch backup is stored under:
+
+```text
+/opt/morse-whisperer-pi/patch-backups/profile-switch-runtime/
+```
+
 ## Design rule
 
 Do not tune Clean CW to fix radio signals.
