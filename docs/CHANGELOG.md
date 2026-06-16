@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-06-17 Radio QRN update
+
+- Added a Radio-only impulse blanker for short static/QRN spikes before the
+  existing tone/envelope decoder.
+- Added conservative Radio-only event cleanup for tiny dropouts inside marks
+  and isolated noise marks.
+- Added regression coverage showing noisy impulse audio recovers with the
+  blanker while Clean-profile switching removes Radio-only keys.
+
 ## 2026-06-14 Radio acquisition update
 
 - Added keyed-envelope tone scoring for Radio CW so steady carriers no longer

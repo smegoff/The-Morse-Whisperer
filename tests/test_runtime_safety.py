@@ -110,6 +110,8 @@ class ProfileSwitchTests(unittest.TestCase):
                         "decoder_profile": "kiwi",
                         "radio_keyed_tone_scoring": True,
                         "radio_fine_tone_search": True,
+                        "radio_qrn_blanker_enabled": True,
+                        "radio_event_cleanup_enabled": True,
                         "audio_device": "plughw:9,0",
                     }
                 ),
@@ -124,6 +126,8 @@ class ProfileSwitchTests(unittest.TestCase):
             self.assertEqual(result["decoder_profile"], "clean")
             self.assertNotIn("radio_keyed_tone_scoring", result)
             self.assertNotIn("radio_fine_tone_search", result)
+            self.assertNotIn("radio_qrn_blanker_enabled", result)
+            self.assertNotIn("radio_event_cleanup_enabled", result)
             self.assertEqual(result["audio_device"], "plughw:9,0")
 
 

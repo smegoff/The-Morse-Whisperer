@@ -85,6 +85,61 @@ def _as_float_audio(samples: np.ndarray) -> np.ndarray:
     arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
     return np.clip(arr, -1.0, 1.0)
 
+
+def blank_impulse_noise(samples: np.ndarray, sample_rate: int, config: Dict) -> np.ndarray:
+    """Conservatively replace short QRN/static spikes with local audio.
+
+    This is intentionally simple and Radio-profile gated. It only blanks short
+    runs far above the local audio percentile, so normal CW sine peaks are left
+    alone.
+    """
+    x = _as_float_audio(samples)
+    if x.size < 8 or not bool(config.get("radio_qrn_blanker_enabled", False)):
+        return x
+
+    abs_x = np.abs(x)
+    p95 = float(np.percentile(abs_x, 95))
+    rms = float(np.sqrt(np.mean(x * x)))
+    threshold = max(
+        float(config.get("radio_qrn_blanker_min_abs", 0.12)),
+        p95 * float(config.get("radio_qrn_blanker_p95_factor", 5.0)),
+        rms * float(config.get("radio_qrn_blanker_rms_factor", 8.0)),
+    )
+
+    mask = abs_x > threshold
+    if not np.any(mask):
+        return x
+
+    max_run = max(1, int(sample_rate * float(config.get("radio_qrn_blanker_max_ms", 3.0)) / 1000.0))
+    pad = max(0, int(sample_rate * float(config.get("radio_qrn_blanker_pad_ms", 0.35)) / 1000.0))
+    out = x.copy()
+    idx = np.flatnonzero(mask)
+    start = int(idx[0])
+    prev = int(idx[0])
+    runs = []
+
+    for current in idx[1:]:
+        current = int(current)
+        if current == prev + 1:
+            prev = current
+            continue
+        runs.append((start, prev))
+        start = prev = current
+    runs.append((start, prev))
+
+    for first, last in runs:
+        if (last - first + 1) > max_run:
+            continue
+        lo = max(0, first - pad)
+        hi = min(out.size, last + pad + 1)
+        left = out[lo - 1] if lo > 0 else (out[hi] if hi < out.size else 0.0)
+        right = out[hi] if hi < out.size else left
+        count = max(1, hi - lo)
+        out[lo:hi] = np.linspace(left, right, count, dtype=np.float32)
+
+    return out.astype(np.float32, copy=False)
+
+
 def audio_metrics(samples: np.ndarray) -> AudioMetrics:
     x = _as_float_audio(samples)
     if x.size == 0:
@@ -365,6 +420,55 @@ def clean_events_by_dot(events: List[Event], dot_ms: float, fraction: float = 0.
         merged = new
 
     return merged
+
+
+def repair_radio_events(events: List[Event], dot_ms: float, config: Dict) -> List[Event]:
+    if not bool(config.get("radio_event_cleanup_enabled", False)) or len(events) < 3:
+        return events
+
+    dot = max(20.0, float(dot_ms))
+    dropout_ms = max(2.0, dot * float(config.get("radio_mark_dropout_units", 0.28)))
+    min_mark_ms = max(3.0, dot * float(config.get("radio_min_noise_mark_units", 0.22)))
+    max_iterations = 4
+
+    out = list(events)
+    for _ in range(max_iterations):
+        changed = False
+        repaired: List[Event] = []
+        i = 0
+        while i < len(out):
+            if 0 < i < len(out) - 1:
+                prev = out[i - 1]
+                cur = out[i]
+                nxt = out[i + 1]
+                if cur.kind == "space" and prev.kind == "mark" and nxt.kind == "mark" and cur.ms <= dropout_ms:
+                    combined = Event("mark", prev.ms + cur.ms + nxt.ms, prev.start_ms, nxt.end_ms)
+                    if repaired:
+                        repaired[-1] = combined
+                    else:
+                        repaired.append(combined)
+                    i += 2
+                    changed = True
+                    continue
+                if cur.kind == "mark" and prev.kind == "space" and nxt.kind == "space" and cur.ms <= min_mark_ms:
+                    combined = Event("space", prev.ms + cur.ms + nxt.ms, prev.start_ms, nxt.end_ms)
+                    if repaired:
+                        repaired[-1] = combined
+                    else:
+                        repaired.append(combined)
+                    i += 2
+                    changed = True
+                    continue
+
+            repaired.append(out[i])
+            i += 1
+
+        out = repaired
+        if not changed:
+            break
+
+    return out
+
 
 def estimate_dot_ms(events: List[Event], initial_wpm: Optional[float] = None) -> float:
     default_dot = 1200.0 / float(initial_wpm or 18.75)
@@ -651,8 +755,9 @@ def analyse_samples(samples: np.ndarray, config: Dict, tone_override: Optional[s
             tone_mode = "fixed"
             target = int(float(tone_override))
     raw_samples = samples
-    metrics = audio_metrics(raw_samples)
-    ranking_samples = raw_samples
+    analysis_samples = blank_impulse_noise(raw_samples, sr, config)
+    metrics = audio_metrics(analysis_samples)
+    ranking_samples = analysis_samples
     if bool(config.get("radio_keyed_tone_scoring", False)):
         max_score_sec = max(0.5, float(config.get("radio_tone_score_max_sec", 4.0)))
         max_score_samples = int(sr * max_score_sec)
@@ -690,7 +795,7 @@ def analyse_samples(samples: np.ndarray, config: Dict, tone_override: Optional[s
     mismatch = bool(tone_mode != "auto" and ranking and abs(ranking[0].tone_hz - target) >= 75 and winner_ratio >= 2.0)
 
     filter_enabled, filter_mode, filter_low, filter_high, filter_bw = mw_filter_settings(config, sr, selected)
-    filter_samples = mw_fft_bandpass(raw_samples, sr, filter_low, filter_high) if filter_enabled else raw_samples
+    filter_samples = mw_fft_bandpass(analysis_samples, sr, filter_low, filter_high) if filter_enabled else analysis_samples
     filter_meta = mw_filter_metadata(filter_enabled, filter_mode, filter_low, filter_high, filter_bw)
 
     env, times = frame_envelope(filter_samples, sr, selected, float(config.get("window_ms", 12)), float(config.get("hop_ms", 8)))
@@ -704,6 +809,7 @@ def analyse_samples(samples: np.ndarray, config: Dict, tone_override: Optional[s
     events_raw, th, lo, hi = schmitt_events(env, times, float(config.get("threshold_bias", 0.48)), float(config.get("hop_ms", 8)), float(config.get("event_comp_ms", 0.0)))
     dot_ms = 1200.0 / float(wpm_override) if wpm_override else estimate_dot_ms(events_raw, float(config.get("initial_wpm", 18.75)))
     events = clean_events_by_dot(events_raw, dot_ms, float(config.get("min_element_fraction", 0.45)))
+    events = repair_radio_events(events, dot_ms, config)
     if len(events) != len(events_raw):
         dot_ms = 1200.0 / float(wpm_override) if wpm_override else estimate_dot_ms(events, float(config.get("initial_wpm", 18.75)))
     wpm = 1200.0 / max(1.0, dot_ms)

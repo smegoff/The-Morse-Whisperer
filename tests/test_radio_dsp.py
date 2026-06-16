@@ -68,6 +68,15 @@ def radio_config() -> dict:
         "radio_tone_competitor_separation_hz": 25,
         "radio_tone_min_hz": 350,
         "radio_tone_max_hz": 1100,
+        "radio_qrn_blanker_enabled": True,
+        "radio_qrn_blanker_min_abs": 0.12,
+        "radio_qrn_blanker_p95_factor": 5.0,
+        "radio_qrn_blanker_rms_factor": 8.0,
+        "radio_qrn_blanker_max_ms": 3.0,
+        "radio_qrn_blanker_pad_ms": 0.35,
+        "radio_event_cleanup_enabled": True,
+        "radio_mark_dropout_units": 0.28,
+        "radio_min_noise_mark_units": 0.22,
         "audio_filter_enabled": True,
         "audio_filter_mode": "narrow",
         "audio_filter_narrow_hz": 260,
@@ -86,6 +95,14 @@ def radio_config() -> dict:
 
 
 class RadioToneTests(unittest.TestCase):
+    def add_impulses(self, samples: np.ndarray) -> np.ndarray:
+        out = samples.copy()
+        rng = np.random.default_rng(3)
+        for pos in rng.integers(400, out.size - 400, 15):
+            width = int(rng.integers(2, 14))
+            out[pos:pos + width] += float(rng.choice([-1, 1])) * 0.70
+        return out.astype(np.float32, copy=False)
+
     def test_fine_search_finds_off_grid_cw_beside_stronger_carrier(self) -> None:
         samples = synthetic_cw("CQ DE ZL1SXG K", 675, amplitude=0.10, noise=0.003)
         t = np.arange(samples.size, dtype=np.float32) / 8000.0
@@ -116,6 +133,22 @@ class RadioToneTests(unittest.TestCase):
         result = analyse_samples(samples, config)
 
         self.assertEqual(result.selected_tone_hz, 750)
+
+    def test_radio_qrn_blanker_recovers_copy_from_impulse_noise(self) -> None:
+        samples = synthetic_cw("CQ DE ZL1SXG K", 675, amplitude=0.035, noise=0.004)
+        samples = self.add_impulses(samples)
+        config = radio_config()
+
+        without_blanker = dict(config)
+        without_blanker["radio_qrn_blanker_enabled"] = False
+        without_blanker["radio_event_cleanup_enabled"] = False
+        bad = analyse_samples(samples, without_blanker)
+
+        with_blanker = analyse_samples(samples, config)
+
+        self.assertNotEqual(bad.copy, "CQ DE ZL1SXG K")
+        self.assertEqual(with_blanker.copy, "CQ DE ZL1SXG K")
+        self.assertEqual(with_blanker.failed_symbols, 0)
 
 
 if __name__ == "__main__":
