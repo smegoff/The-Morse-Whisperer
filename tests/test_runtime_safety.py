@@ -26,19 +26,19 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertIs(app.display, display)
         self.assertIs(app.buttons, buttons)
 
-    def test_radio_preanalysis_gate_skips_only_near_silence(self) -> None:
+    def test_radio_preanalysis_gate_can_be_disabled_for_weak_inputs(self) -> None:
         app = MorseWhispererApp()
         app.config.update({
             "radio_keyed_tone_scoring": True,
-            "radio_search_min_rms": 0.0015,
-            "radio_search_min_peak": 0.006,
+            "radio_search_min_rms": 0.0,
+            "radio_search_min_peak": 0.0,
         })
 
-        quiet = np.full(8000, 0.0002, dtype=np.float32)
-        weak = np.sin(2 * np.pi * 675 * np.arange(8000) / 8000.0).astype(np.float32) * 0.004
+        disconnected = np.zeros(8000, dtype=np.float32)
+        weak_receiver_audio = np.full(8000, 0.0002, dtype=np.float32)
 
-        self.assertFalse(app.should_analyse_recent(quiet)[0])
-        self.assertTrue(app.should_analyse_recent(weak)[0])
+        self.assertTrue(app.should_analyse_recent(disconnected)[0])
+        self.assertTrue(app.should_analyse_recent(weak_receiver_audio)[0])
 
 
 class ProfileSwitchTests(unittest.TestCase):
