@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-06-17 Fast CW timing update
+
+- Improved dot timing estimation for 25+ WPM Radio CW by accepting repeated
+  fast dits below the previous 35 ms floor.
+- Reduced bias toward the slower default WPM once measured timing indicates
+  fast copy, preventing fast dits from being classified as dahs.
+- Added synthetic 28, 30, and 35 WPM regression coverage.
+- Disabled the Radio near-silence pre-analysis gate by default so weak receiver
+  audio is still analysed.
+
 ## 2026-06-17 Radio QRN update
 
 - Added a Radio-only impulse blanker for short static/QRN spikes before the
@@ -16,8 +26,8 @@
 - Added 5 Hz fine search around the strongest coarse tone candidates.
 - Added relative weak-signal activity detection and guarded tone relocking.
 - Bounded tone scoring to recent audio to keep long sessions responsive.
-- Added a near-silence pre-analysis gate to keep Radio mode lightweight while
-  retaining signals above the appliance noise floor.
+- Added a near-silence pre-analysis gate experiment for Radio mode. This was
+  later disabled by default to avoid rejecting weak receiver audio.
 - Added synthetic weak-signal/interference regression tests and a labelled WAV
   evaluation tool.
 - Kept Clean CW on the original tone-selection path.

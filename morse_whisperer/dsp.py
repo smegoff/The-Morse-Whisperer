@@ -484,7 +484,7 @@ def estimate_dot_ms(events: List[Event], initial_wpm: Optional[float] = None) ->
     #   - allow one/two marks in a live window to influence timing
     #   - trust observed slow timing more than the configured default
     marks = np.array(
-        [e.ms for e in events if e.kind == "mark" and 35.0 <= e.ms <= 950.0],
+        [e.ms for e in events if e.kind == "mark" and 18.0 <= e.ms <= 950.0],
         dtype=np.float32,
     )
 
@@ -498,9 +498,10 @@ def estimate_dot_ms(events: List[Event], initial_wpm: Optional[float] = None) ->
     if marks.size < 3:
         shortest = float(marks[0])
 
-        # 5 WPM dit ~= 240 ms. 10 WPM dit ~= 120 ms.
-        # Trust this range heavily.
-        if 45.0 <= shortest <= 360.0:
+        # 5 WPM dit ~= 240 ms. 10 WPM dit ~= 120 ms. Fast operators at
+        # 35+ WPM produce 30 ms-ish dits after envelope timing, so keep the
+        # lower bound below that while still rejecting key-click chatter.
+        if 22.0 <= shortest <= 360.0:
             return 0.90 * shortest + 0.10 * default_dot
 
         return default_dot
@@ -511,15 +512,20 @@ def estimate_dot_ms(events: List[Event], initial_wpm: Optional[float] = None) ->
     med = float(np.median(lower))
 
     # Avoid mistaking key clicks/noise for dots.
-    if med < 45.0:
+    if med < 22.0:
         med = float(np.percentile(marks, 35))
 
-    if 45.0 <= med <= 360.0:
+    if 22.0 <= med <= 360.0:
         observed_wpm = 1200.0 / max(1.0, med)
 
         if observed_wpm <= 10.0:
             # Slow CW needs minimal bias toward the much faster default.
             return 0.90 * med + 0.10 * default_dot
+
+        if observed_wpm >= 24.0:
+            # At higher speeds, biasing toward a slower default quickly turns
+            # dits into dahs. Trust the measured lower-duration cluster.
+            return 0.95 * med + 0.05 * default_dot
 
         return 0.75 * med + 0.25 * default_dot
 

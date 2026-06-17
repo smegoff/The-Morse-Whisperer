@@ -14,9 +14,15 @@ MORSE = {
 }
 
 
-def synthetic_cw(text: str, tone_hz: int, amplitude: float = 0.10, noise: float = 0.0) -> np.ndarray:
+def synthetic_cw(
+    text: str,
+    tone_hz: int,
+    amplitude: float = 0.10,
+    noise: float = 0.0,
+    wpm: float = 18.75,
+) -> np.ndarray:
     sample_rate = 8000
-    dot = 0.064
+    dot = 1.2 / float(wpm)
     chunks = [np.zeros(int(sample_rate * 0.25), dtype=np.float32)]
 
     def silence(units: float) -> None:
@@ -121,6 +127,18 @@ class RadioToneTests(unittest.TestCase):
         self.assertLessEqual(abs(result.selected_tone_hz - 685), 5)
         self.assertGreater(result.envelope_contrast, 0.3)
         self.assertGreater(result.decoded_symbols, 5)
+
+    def test_radio_decodes_fast_clean_cw(self) -> None:
+        for wpm in (28, 30, 35):
+            with self.subTest(wpm=wpm):
+                samples = synthetic_cw("CQ DE ZL1SXG K", 700, amplitude=0.08, noise=0.0015, wpm=wpm)
+                config = radio_config()
+
+                result = analyse_samples(samples, config)
+
+                self.assertEqual(result.copy, "CQ DE ZL1SXG K")
+                self.assertLessEqual(abs(result.wpm - wpm), 3.0)
+                self.assertEqual(result.failed_symbols, 0)
 
     def test_clean_style_config_keeps_legacy_power_selection(self) -> None:
         samples = synthetic_cw("CQ DE ZL1SXG K", 675, amplitude=0.10, noise=0.003)
