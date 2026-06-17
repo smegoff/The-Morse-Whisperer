@@ -884,7 +884,7 @@ button.primary,
     0 0 18px rgba(255,176,46,.18);
 }
 
-/* Tone ranking gets a bit of the cyberpunk analyser look */
+/* Tone ranking gets a bit of the receiver analyser look */
 #toneRanking .bar span,
 [class*="tone"] .bar span{
   background:
@@ -1025,7 +1025,7 @@ body > *:not(#mwSplashWatermark){
   background-image:
     radial-gradient(circle at 50% 54%, rgba(66,248,255,.18), transparent 38%),
     radial-gradient(circle at 52% 64%, rgba(255,176,46,.13), transparent 42%),
-    url('/assets/horse_boot_splash.png');
+    url('/assets/horse_boot_splash_bg.png');
 
   background-position:
     center 52%,
@@ -1070,6 +1070,10 @@ body > *:not(#mwSplashWatermark){
 @media (min-width:1500px){
   #mwSplashWatermark{
     opacity:.46;
+    background-image:
+      radial-gradient(circle at 50% 54%, rgba(66,248,255,.18), transparent 38%),
+      radial-gradient(circle at 52% 64%, rgba(255,176,46,.13), transparent 42%),
+      url('/assets/horse_boot_splash_bg_wide.png');
     background-size:
       1320px 990px,
       1160px 870px,
@@ -1088,11 +1092,11 @@ body > *:not(#mwSplashWatermark){
     background-size:
       120vw 90vw,
       110vw 82vw,
-      100vw auto;
+      min(100vw, 760px) auto;
   }
 }
 
-/* MW_AI_COPILOT_LAYOUT_V2 */
+/* MW_REPLY_HELPER_LAYOUT_V1 */
 .aiCopilotWide{
   margin-top:16px;
 }
@@ -1128,6 +1132,123 @@ body > *:not(#mwSplashWatermark){
 
 </style>
 
+<style>
+/* MW_NATURAL_RADIO_CONSOLE_V1
+   Final presentation layer: quieter, more appliance-like, less generated. */
+:root{
+  --bg:#0b1116;
+  --panel:#111a21;
+  --panel2:#16222b;
+  --line:#2a3944;
+  --text:#edf3f7;
+  --muted:#9aa8b3;
+  --good:#7ddc91;
+  --warn:#e4bd68;
+  --bad:#e07171;
+  --blue:#8db7d6;
+  --shadow:0 14px 32px rgba(0,0,0,.28);
+}
+
+html,body{
+  background:
+    radial-gradient(circle at 76% 4%, rgba(141,183,214,.10), transparent 24rem),
+    linear-gradient(180deg,#0b1116 0%,#070b0f 100%) !important;
+}
+body::before{display:none !important}
+
+.app{max-width:1680px}
+.title h1{letter-spacing:-.025em;text-shadow:none !important}
+.title h1::after{display:none !important}
+.title .sub{letter-spacing:.01em}
+.logo{
+  background:#172631 !important;
+  color:#d7e5ed !important;
+  border:1px solid rgba(141,183,214,.35);
+  box-shadow:none !important;
+  letter-spacing:-1px;
+}
+
+.card{
+  background:linear-gradient(180deg,rgba(18,28,36,.96),rgba(12,18,24,.96)) !important;
+  border:1px solid rgba(126,146,158,.24) !important;
+  box-shadow:var(--shadow) !important;
+}
+.card:hover{
+  border-color:rgba(141,183,214,.34) !important;
+  box-shadow:0 16px 36px rgba(0,0,0,.30) !important;
+}
+.cardHead{
+  border-bottom:1px solid rgba(126,146,158,.13);
+  padding-bottom:12px;
+}
+.cardHead h2,.cardHead h3{letter-spacing:.01em}
+.copyText{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  letter-spacing:.015em;
+  font-weight:700;
+  text-shadow:none !important;
+}
+.rawText,.log,pre,code,[class*="log"]{
+  color:#d7e1e7 !important;
+  text-shadow:none !important;
+}
+
+.badge,.pill{
+  background:rgba(11,17,22,.78) !important;
+  border:1px solid rgba(126,146,158,.26) !important;
+  color:#d8e2e8 !important;
+  box-shadow:none !important;
+}
+.badge.good{color:var(--good) !important;border-color:rgba(125,220,145,.40) !important}
+.badge.warn{color:var(--warn) !important;border-color:rgba(228,189,104,.40) !important}
+.badge.bad{color:var(--bad) !important;border-color:rgba(224,113,113,.42) !important}
+
+button,.btn,.button{
+  background:#15222b !important;
+  color:#edf3f7 !important;
+  border:1px solid rgba(126,146,158,.30) !important;
+  box-shadow:none !important;
+  transform:none !important;
+}
+button:hover,.btn:hover,.button:hover{
+  border-color:rgba(141,183,214,.55) !important;
+  background:#1b2a34 !important;
+  box-shadow:none !important;
+}
+button.primary,.primary{
+  background:#d6e2ea !important;
+  color:#0d151b !important;
+  border-color:#eef5f8 !important;
+  box-shadow:none !important;
+}
+
+input,select,textarea{
+  background:#0a1117 !important;
+  border:1px solid rgba(126,146,158,.32) !important;
+  color:#edf3f7 !important;
+  box-shadow:none !important;
+}
+input:focus,select:focus,textarea:focus{
+  border-color:rgba(141,183,214,.72) !important;
+  box-shadow:0 0 0 3px rgba(141,183,214,.12) !important;
+}
+
+.setting,.networkBox,.metric{
+  background:rgba(9,15,20,.58) !important;
+  border:1px solid rgba(126,146,158,.20) !important;
+  box-shadow:none !important;
+}
+.setting:hover{border-color:rgba(141,183,214,.36) !important;box-shadow:none !important}
+
+.barFill,.bar span,.meter span,#toneRanking .bar span,[class*="tone"] .bar span{
+  background:linear-gradient(90deg,#6fa2bf,#d9c27b) !important;
+  box-shadow:none !important;
+}
+
+#mwSplashWatermark{opacity:.18 !important;filter:saturate(.75) contrast(.95) !important}
+#controls::before,#morseControls::before,.card:has(.tabs)::before{display:none !important}
+</style>
+
 </head>
 <body>
 <div class="app">
@@ -1136,7 +1257,7 @@ body > *:not(#mwSplashWatermark){
       <div class="logo">MW</div>
       <div class="title">
         <h1>The Morse Whisperer</h1>
-        <div class="sub">CW decoder appliance · Raspberry Pi live receiver</div>
+        <div class="sub">CW decoder appliance - Raspberry Pi live receiver</div>
       </div>
     </div>
     <div class="statusPills">
@@ -1155,7 +1276,7 @@ body > *:not(#mwSplashWatermark){
           <span id="acceptedBadge" class="badge">accepted output</span>
         </div>
         <div class="cardBody copyBox">
-          <div id="copy" class="copyText empty">Waiting for CW…</div>
+          <div id="copy" class="copyText empty">Waiting for CW...</div>
         </div>
       </section>
 
@@ -1212,24 +1333,24 @@ body > *:not(#mwSplashWatermark){
     </aside>
   </div>
 
-  <!-- MW_AI_COPILOT_LAYOUT_V2 -->
+  <!-- MW_REPLY_HELPER_LAYOUT_V1 -->
 
 
       <section class="card aiCopilotWide" id="aiCopilotCard">
         <div class="cardHead">
-          <h3>Morse Whisperer Copilot</h3>
-          <span id="aiProviderBadge" class="badge">local assist</span>
+          <h3>Station Notes</h3>
+          <span id="aiProviderBadge" class="badge">local helper</span>
         </div>
         <div class="cardBody">
           <div class="small" style="margin-bottom:10px">
-            Local-first QSO helper. AI, when enabled, only analyses copy and suggests replies for human review.
+            Optional reply helper for received copy. The decoder stays local; nothing is sent unless the helper is enabled.
           </div>
 
           <div class="controls">
-            <button onclick="aiAnalyseCurrent()">Analyse current copy</button>
-            <button class="primary" onclick="aiSuggestReply()">Suggest reply</button>
+            <button onclick="aiAnalyseCurrent()">Read current copy</button>
+            <button class="primary" onclick="aiSuggestReply()">Draft reply</button>
             <button onclick="aiCopyReply()">Copy reply</button>
-            <button onclick="aiPlayReply()">Play reply as CW</button>
+            <button onclick="aiPlayReply()">Play as CW</button>
             <button onclick="aiResetQso()">Reset QSO</button>
           </div>
 
@@ -1240,12 +1361,12 @@ body > *:not(#mwSplashWatermark){
           </div>
 
           <div class="setting" style="margin-top:12px">
-            <label for="aiReplyText">Suggested reply</label>
-            <textarea id="aiReplyText" rows="3" placeholder="No suggested reply yet."></textarea>
-            <div class="hint" id="aiPlainEnglish">Analyse or suggest a reply to populate this.</div>
+            <label for="aiReplyText">Draft reply</label>
+            <textarea id="aiReplyText" rows="3" placeholder="No draft yet."></textarea>
+            <div class="hint" id="aiPlainEnglish">Read the current copy or draft a reply to populate this.</div>
           </div>
 
-          <pre class="log" id="aiWarnings" style="margin-top:10px">AI Copilot ready.</pre>
+          <pre class="log" id="aiWarnings" style="margin-top:10px">Reply helper ready.</pre>
         </div>
       </section>
 
@@ -1266,7 +1387,7 @@ body > *:not(#mwSplashWatermark){
           <div class="setting">
             <label for="setToneMode">Decoder mode</label>
             <select id="setToneMode">
-              <option value="session_auto">Full auto — recommended</option>
+              <option value="session_auto">Full auto - recommended</option>
               <option value="auto">Continuous auto tone</option>
               <option value="fixed">Manual fixed tone</option>
             </select>
@@ -1290,15 +1411,15 @@ body > *:not(#mwSplashWatermark){
           <div class="setting">
             <label for="setInputLevel">Input level %</label>
             <input id="setInputLevel" type="range" min="0" max="100" step="1">
-            <div class="hint"><span id="setInputLevelVal">--</span>% · attempts ALSA Capture level.</div>
+            <div class="hint"><span id="setInputLevelVal">--</span>% - attempts ALSA Capture level.</div>
           </div>
 
           <div class="setting">
             <label for="setAudioFilterMode">Audio bandwidth filter</label>
             <select id="setAudioFilterMode">
               <option value="off">Off</option>
-              <option value="wide">Wide — 500 Hz</option>
-              <option value="narrow">Narrow — 220 Hz</option>
+              <option value="wide">Wide - 500 Hz</option>
+              <option value="narrow">Narrow - 220 Hz</option>
               <option value="custom">Custom</option>
             </select>
             <div class="hint">Filters around the detected CW tone before decode.</div>
@@ -1313,7 +1434,7 @@ body > *:not(#mwSplashWatermark){
           <div class="setting">
             <label for="setLcdBrightness">TFT brightness %</label>
             <input id="setLcdBrightness" type="range" min="10" max="100" step="1">
-            <div class="hint"><span id="setLcdBrightnessVal">--</span>% · software dimming unless hardware backlight exists.</div>
+            <div class="hint"><span id="setLcdBrightnessVal">--</span>% - software dimming unless hardware backlight exists.</div>
           </div>
 
           <div class="setting">
@@ -1339,16 +1460,16 @@ body > *:not(#mwSplashWatermark){
           </div>
 
           <div class="setting">
-            <label for="setAiEnabled">AI assistance</label>
+            <label for="setAiEnabled">Reply helper</label>
             <select id="setAiEnabled">
-              <option value="false">Disabled — local only</option>
-              <option value="true">Enabled — assist only</option>
+              <option value="false">Disabled - local only</option>
+              <option value="true">Enabled - assist only</option>
             </select>
-            <div class="hint">Decoder always remains local. AI only analyses copy and suggests replies for review.</div>
+            <div class="hint">Decoder always remains local. The helper only reads copy and drafts replies for review.</div>
           </div>
 
           <div class="setting">
-            <label for="setAiProvider">AI provider</label>
+            <label for="setAiProvider">Reply source</label>
             <select id="setAiProvider">
               <option value="local">Local rules only</option>
               <option value="openai">OpenAI / ChatGPT</option>
@@ -1357,18 +1478,18 @@ body > *:not(#mwSplashWatermark){
           </div>
 
           <div class="setting">
-            <label for="setAiModel">AI model</label>
+            <label for="setAiModel">Reply model</label>
             <input id="setAiModel" type="text" placeholder="gpt-4.1-mini">
-            <div class="hint">Used only when AI assistance is enabled.</div>
+            <div class="hint">Used only when the reply helper is enabled.</div>
           </div>
 
           <div class="setting">
-            <label for="setAiRealtimeAssist">AI real-time assist</label>
+            <label for="setAiRealtimeAssist">Auto notes</label>
             <select id="setAiRealtimeAssist">
               <option value="false">Disabled</option>
               <option value="true">Enabled for new copy</option>
             </select>
-            <div class="hint">When AI assistance is enabled, analyse new stable COPY events automatically.</div>
+            <div class="hint">When the reply helper is enabled, read new stable COPY events automatically.</div>
           </div>
         </div>
 
@@ -1381,9 +1502,9 @@ body > *:not(#mwSplashWatermark){
       <div id="tabGenerator" class="tabPane">
         <div class="trainerSectionTitle">Playback medium</div>
         <div class="playbackModes">
-          <button id="playbackSound" class="modeTile active" onclick="setPlaybackMode('sound')">♪<br>Sound</button>
-          <button id="playbackLight" class="modeTile disabled" onclick="setPlaybackMode('light')" title="Future visual flash trainer mode">☼<br>Light</button>
-          <button id="playbackVibrate" class="modeTile disabled" onclick="setPlaybackMode('vibrate')" title="Future external haptic output">▣<br>Vibrate</button>
+          <button id="playbackSound" class="modeTile active" onclick="setPlaybackMode('sound')">Sound</button>
+          <button id="playbackLight" class="modeTile disabled" onclick="setPlaybackMode('light')" title="Future visual flash trainer mode">Light</button>
+          <button id="playbackVibrate" class="modeTile disabled" onclick="setPlaybackMode('vibrate')" title="Future external haptic output">Vibrate</button>
         </div>
 
         <div class="generatorHero">
@@ -1405,11 +1526,11 @@ body > *:not(#mwSplashWatermark){
               <div class="setting">
                 <label for="cwKeyProfile">Simulated Morse key</label>
                 <select id="cwKeyProfile">
-                  <option value="computer">Computer — perfect timing</option>
-                  <option value="paddle_clean">Paddle — clean</option>
-                  <option value="paddle_learner">Paddle — learner</option>
-                  <option value="bug_light">Bug — light humanise</option>
-                  <option value="straight_human">Straight key — humanise</option>
+                  <option value="computer">Computer - perfect timing</option>
+                  <option value="paddle_clean">Paddle - clean</option>
+                  <option value="paddle_learner">Paddle - learner</option>
+                  <option value="bug_light">Bug - light humanise</option>
+                  <option value="straight_human">Straight key - humanise</option>
                 </select>
                 <div class="hint">Adds timing character. Computer mode is best for decoder testing.</div>
               </div>
@@ -1454,8 +1575,8 @@ body > *:not(#mwSplashWatermark){
                   <label for="cwPlaybackMode">Playback mode</label>
                   <select id="cwPlaybackMode">
                     <option value="sound">Sound</option>
-                    <option value="light" disabled>Light — future</option>
-                    <option value="vibrate" disabled>Vibrate — future</option>
+                    <option value="light" disabled>Light - future</option>
+                    <option value="vibrate" disabled>Vibrate - future</option>
                   </select>
                   <div class="hint">Only Sound is active on this hardware today.</div>
                 </div>
@@ -1553,7 +1674,7 @@ body > *:not(#mwSplashWatermark){
 
         <div class="networkBox" style="margin-top:12px">
           <h4>Saved NetworkManager connections</h4>
-          <div id="netConnections" class="networkList">Loading…</div>
+          <div id="netConnections" class="networkList">Loading...</div>
         </div>
       </div>
 
@@ -1582,7 +1703,7 @@ body > *:not(#mwSplashWatermark){
     <section class="card">
       <div class="cardHead"><h3>Tone Ranking</h3><span class="badge">current audio</span></div>
       <div class="cardBody">
-        <div id="tones" class="tones">Waiting for tone scan…</div>
+        <div id="tones" class="tones">Waiting for tone scan...</div>
       </div>
     </section>
   </div>
@@ -1598,7 +1719,7 @@ body > *:not(#mwSplashWatermark){
     <section class="card">
       <div class="cardHead"><h3>Status Log</h3></div>
       <div class="cardBody">
-        <div id="log" class="statusLog">Loading…</div>
+        <div id="log" class="statusLog">Loading...</div>
       </div>
     </section>
   </div>
@@ -1629,7 +1750,7 @@ function reasonClass(reason, conf, snr){
 }
 async function resetCopy(){
   await fetch('/api/reset',{method:'POST'});
-  $('copy').textContent='Waiting for CW…';
+  $('copy').textContent='Waiting for CW...';
   $('copy').classList.add('empty');
   $('raw').textContent='No accepted raw copy yet.';
 }
@@ -1721,7 +1842,7 @@ async function toggleBandwidthFilter(){
   }
 }
 
-/* MW_AI_COPILOT_WEB_CARD_V1 */
+/* MW_REPLY_HELPER_WEB_CARD_V1 */
 let mwAiLastAnalysis = null;
 let mwAiLastReply = null;
 
@@ -1736,7 +1857,7 @@ function aiCurrentCopyText(){
   const copy = ($('copy')?.textContent || '').trim();
   const raw = ($('raw')?.textContent || '').trim();
 
-  if(copy && copy !== 'Waiting for CW…' && copy !== 'Waiting for CW...' && !copy.includes('Waiting for CW')){
+  if(copy && copy !== 'Waiting for CW...' && copy !== 'Waiting for CW...' && !copy.includes('Waiting for CW')){
     return copy;
   }
 
@@ -1755,10 +1876,10 @@ function aiUpdateProviderBadge(ctxOrSettings){
   const provider = (ctxOrSettings && ctxOrSettings.ai_provider) || 'local';
 
   if(enabled && provider === 'openai'){
-    badge.textContent = 'AI assist enabled';
+    badge.textContent = 'reply helper on';
     badge.className = 'badge good';
   }else{
-    badge.textContent = 'local assist';
+    badge.textContent = 'local helper';
     badge.className = 'badge';
   }
 }
@@ -1774,9 +1895,9 @@ function aiRenderAnalysis(analysis){
   $('aiConfidence').textContent = conf ? conf.toFixed(2) : '--';
 
   const warnings = analysis.warnings || [];
-  const provider = analysis.provider || (analysis.local_only ? 'local' : 'ai');
-  const fallback = analysis.fallback_used ? ' · fallback used' : '';
-  aiSetStatus(`Analysis provider: ${provider}${fallback}\n${warnings.length ? warnings.join('\n') : 'No warnings.'}`, warnings.length === 0);
+  const provider = analysis.provider || (analysis.local_only ? 'local' : 'helper');
+  const fallback = analysis.fallback_used ? ' - fallback used' : '';
+  aiSetStatus(`Read by: ${provider}${fallback}\n${warnings.length ? warnings.join('\n') : 'No warnings.'}`, warnings.length === 0);
 
   aiUpdateProviderBadge({
     ai_enabled: analysis.local_only ? false : true,
@@ -1795,9 +1916,9 @@ function aiRenderReply(reply){
   if(conf) $('aiConfidence').textContent = conf.toFixed(2);
 
   const warnings = reply.warnings || [];
-  const provider = reply.provider || (reply.local_only ? 'local' : 'ai');
-  const fallback = reply.fallback_used ? ' · fallback used' : '';
-  aiSetStatus(`Reply provider: ${provider}${fallback}\n${warnings.length ? warnings.join('\n') : 'Human review required before transmit.'}`, warnings.length === 0);
+  const provider = reply.provider || (reply.local_only ? 'local' : 'helper');
+  const fallback = reply.fallback_used ? ' - fallback used' : '';
+  aiSetStatus(`Drafted by: ${provider}${fallback}\n${warnings.length ? warnings.join('\n') : 'Review before transmit.'}`, warnings.length === 0);
 }
 
 async function aiAnalyseCurrent(){
@@ -1808,7 +1929,7 @@ async function aiAnalyseCurrent(){
     return;
   }
 
-  aiSetStatus('Analysing current copy...');
+  aiSetStatus('Reading current copy...');
 
   try{
     const result = await fetch('/api/ai/analyse', {
@@ -1823,7 +1944,7 @@ async function aiAnalyseCurrent(){
 
     aiRenderAnalysis(result);
   }catch(e){
-    aiSetStatus('AI analyse failed: ' + e);
+    aiSetStatus('Copy read failed: ' + e);
   }
 }
 
@@ -1835,7 +1956,7 @@ async function aiSuggestReply(){
     return;
   }
 
-  aiSetStatus('Suggesting reply...');
+  aiSetStatus('Drafting reply...');
 
   try{
     const result = await fetch('/api/ai/reply', {
@@ -1851,7 +1972,7 @@ async function aiSuggestReply(){
     aiRenderAnalysis(result.analysis);
     aiRenderReply(result.reply);
   }catch(e){
-    aiSetStatus('AI reply failed: ' + e);
+    aiSetStatus('Draft failed: ' + e);
   }
 }
 
@@ -1859,14 +1980,14 @@ async function aiCopyReply(){
   const text = ($('aiReplyText')?.value || '').trim();
 
   if(!text){
-    aiSetStatus('No suggested reply to copy.');
+    aiSetStatus('No draft reply to copy.');
     return;
   }
 
   try{
     if(navigator.clipboard && navigator.clipboard.writeText){
       await navigator.clipboard.writeText(text);
-      aiSetStatus('Suggested reply copied to clipboard.', true);
+      aiSetStatus('Draft reply copied to clipboard.', true);
       return;
     }
 
@@ -1876,7 +1997,7 @@ async function aiCopyReply(){
       area.select();
       const ok = document.execCommand && document.execCommand('copy');
       if(ok){
-        aiSetStatus('Suggested reply copied using browser fallback.', true);
+        aiSetStatus('Draft reply copied using browser fallback.', true);
         return;
       }
     }
@@ -1896,11 +2017,11 @@ async function aiPlayReply(){
   const text = ($('aiReplyText')?.value || '').trim();
 
   if(!text){
-    aiSetStatus('No suggested reply to play.');
+    aiSetStatus('No draft reply to play.');
     return;
   }
 
-  aiSetStatus('Playing suggested reply through CW generator...');
+  aiSetStatus('Playing draft reply through CW generator...');
 
   try{
     const payload = {
@@ -1926,7 +2047,7 @@ async function aiPlayReply(){
       throw new Error(result.error || 'CW generator failed');
     }
 
-    aiSetStatus('Suggested reply is playing as CW audio. Human review still required before any RF transmit.', true);
+    aiSetStatus('Draft reply is playing as CW audio. Review before any RF transmit.', true);
   }catch(e){
     aiSetStatus('Play reply failed: ' + e);
   }
@@ -1994,7 +2115,7 @@ async function aiMaybeRealtimeAssist(copy, cfg){
   mwAiRealtimeLastCallAt = now;
   mwAiRealtimeLastCopy = copy;
 
-  aiSetStatus('Auto-assist: analysing new stable copy...');
+  aiSetStatus('Auto notes: reading new stable copy...');
 
   try{
     const result = await fetch('/api/ai/reply', {
@@ -2012,9 +2133,9 @@ async function aiMaybeRealtimeAssist(copy, cfg){
 
     const provider = (result.reply && result.reply.provider) || (result.analysis && result.analysis.provider) || 'local';
     const fallback = (result.reply && result.reply.fallback_used) || (result.analysis && result.analysis.fallback_used);
-    aiSetStatus('Auto-assist updated from new stable copy. Provider: ' + provider + (fallback ? ' · fallback used' : '') + '. Human review required.', true);
+    aiSetStatus('Auto notes updated from new stable copy. Source: ' + provider + (fallback ? ' - fallback used' : '') + '. Review before transmit.', true);
   }catch(e){
-    aiSetStatus('Auto-assist failed: ' + e);
+    aiSetStatus('Auto notes failed: ' + e);
   }finally{
     mwAiRealtimeBusy = false;
   }
@@ -2024,7 +2145,7 @@ async function aiMaybeRealtimeAssist(copy, cfg){
 function updateToneRanking(ranking){
   const list=(ranking||[]).slice(0,10);
   if(!list.length){
-    $('tones').textContent='Waiting for tone scan…';
+    $('tones').textContent='Waiting for tone scan...';
     return;
   }
   const max=Math.max(...list.map(x=>Number(x.score||0)), 0.0000001);
@@ -2319,7 +2440,7 @@ function renderWifiNetworks(nets){
 
     const ssid=n.ssid || '';
     const label=document.createElement('b');
-    label.textContent=(n.in_use ? '★ ' : '') + (ssid || '(hidden)');
+    label.textContent=(n.in_use ? '* ' : '') + (ssid || '(hidden)');
 
     const sig=document.createElement('span');
     sig.textContent=Number(n.signal||0)+'%';
@@ -2403,7 +2524,7 @@ async function connectWifiManual(){
 }
 
 async function scanWifi(){
-  $('wifiScanList').textContent='Scanning…';
+  $('wifiScanList').textContent='Scanning...';
   try{
     const r=await fetch('/api/network/scan?ts='+Date.now(),{cache:'no-store'});
     const s=await r.json();
@@ -2438,7 +2559,7 @@ async function tick(){
 
     aiMaybeRealtimeAssist(copy, cfg);
 
-    $('copy').textContent=copy || 'Waiting for CW…';
+    $('copy').textContent=copy || 'Waiting for CW...';
     $('copy').classList.toggle('empty', !copy);
     $('raw').textContent=raw || 'No accepted raw copy yet.';
 
@@ -2481,8 +2602,8 @@ async function tick(){
     $('targetTone').textContent=(q.target_tone_hz||cfg.target_tone_hz||'--')+' Hz';
     $('wpm').textContent=num(q.wpm,1);
     $('reason').innerHTML=`<span class="badge ${cls}">${q.reason||'--'}</span>`;
-    $('session').textContent=`${num(q.live_session_seconds,1)}s · quiet ${num(q.quiet_for_sec,1)}s`;
-    $('buffer').textContent=`${num(a.buffered_seconds,1)}s · trims ${a.overruns||0}`;
+    $('session').textContent=`${num(q.live_session_seconds,1)}s - quiet ${num(q.quiet_for_sec,1)}s`;
+    $('buffer').textContent=`${num(a.buffered_seconds,1)}s - trims ${a.overruns||0}`;
 
     updateToneRanking(q.tone_ranking);
 
@@ -2580,7 +2701,7 @@ loadSettings();
         </select>
         <button id="mwDecoderProfileApply" type="button" style="padding:8px 12px;border-radius:8px;cursor:pointer;">Apply & Restart</button>
       </div>
-      <div id="mwDecoderProfileStatus" style="font-size:12px;opacity:.86;margin-top:8px;">Loading profile…</div>
+      <div id="mwDecoderProfileStatus" style="font-size:12px;opacity:.86;margin-top:8px;">Loading profile...</div>
     `;
 
     const target =
@@ -2597,11 +2718,11 @@ loadSettings();
       const status = document.getElementById('mwDecoderProfileStatus');
       const profile = select.value;
 
-      status.textContent = 'Applying ' + profile + ' profile and restarting…';
+      status.textContent = 'Applying ' + profile + ' profile and restarting...';
 
       try {
         await setProfile(profile);
-        status.textContent = 'Profile saved. Service restarting and clearing decoder. Reloading shortly…';
+        status.textContent = 'Profile saved. Service restarting and clearing decoder. Reloading shortly...';
         setTimeout(() => location.reload(), 9000);
       } catch(e) {
         status.textContent = 'Profile switch failed: ' + e.message;
@@ -2620,7 +2741,7 @@ loadSettings();
 
       let toneRange = 'tones unknown';
       if(Array.isArray(p.allowed_tones_hz) && p.allowed_tones_hz.length){
-        toneRange = p.allowed_tones_hz[0] + '–' + p.allowed_tones_hz[p.allowed_tones_hz.length - 1] + ' Hz';
+        toneRange = p.allowed_tones_hz[0] + '-' + p.allowed_tones_hz[p.allowed_tones_hz.length - 1] + ' Hz';
       }
 
       const friendlyName = (p.decoder_profile === 'kiwi') ? 'Radio CW' : ((p.decoder_profile === 'clean') ? 'Clean CW' : (p.decoder_profile || 'unknown'));
