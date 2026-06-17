@@ -13,11 +13,11 @@ Known-good boot overlay:
 ```text
 dtparam=spi=on
 dtoverlay=fbtft,spi0-0,ili9340,dc_pin=25,rotate=90,speed=32000000,fps=20
-dtoverlay=ads7846,cs=1,penirq=17,penirq_pull=2,speed=2000000,xohms=60,pmax=255
+dtoverlay=ads7846,cs=1,penirq=24,penirq_pull=2,speed=2000000,xohms=60,pmax=255
 ```
 
 The display uses ILI9340 on SPI CS0 with LCD DC on GPIO25. The resistive touch
-controller uses ADS7846/XPT2046 on SPI CS1 with PENIRQ on GPIO17. On the
+controller uses ADS7846/XPT2046 on SPI CS1 with PENIRQ on GPIO24. On the
 verified appliance the touch input appears as:
 
 ```text

@@ -42,7 +42,8 @@ class TouchscreenMonitor:
         self.on_clear = on_clear
 
         self.enabled = bool(config.get("touchscreen_enabled", True))
-        self.device = str(config.get("touchscreen_device", "auto") or "auto")
+        self.requested_device = str(config.get("touchscreen_device", "auto") or "auto")
+        self.device = self.requested_device
         self.width = int(config.get("display_width", 320))
         self.height = int(config.get("display_height", 240))
         self.raw_x_min = int(config.get("touchscreen_raw_x_min", 0))
@@ -83,8 +84,8 @@ class TouchscreenMonitor:
         self.state.append_status(f"Touchscreen active: {path}")
 
     def find_device(self) -> Optional[str]:
-        if self.device != "auto":
-            return self.device if os.path.exists(self.device) else None
+        if self.requested_device != "auto":
+            return self.requested_device if os.path.exists(self.requested_device) else None
 
         for event in sorted(Path("/sys/class/input").glob("event*")):
             name_path = event / "device" / "name"
@@ -185,4 +186,9 @@ class TouchscreenMonitor:
                         self.process_event(ev_type, code, value)
             except Exception as e:
                 self.state.append_status(f"Touchscreen read failed: {e}")
+                if self.requested_device == "auto":
+                    path = self.find_device()
+                    if path and path != self.device:
+                        self.device = path
+                        self.state.append_status(f"Touchscreen rediscovered: {path}")
                 time.sleep(2.0)
