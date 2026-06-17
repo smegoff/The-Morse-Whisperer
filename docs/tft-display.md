@@ -12,7 +12,7 @@ Known-good boot overlay:
 
 ```text
 dtparam=spi=on
-dtoverlay=fbtft,spi0-0,ili9340,dc_pin=25,rotate=90,speed=32000000,fps=20
+dtoverlay=fbtft,spi0-0,ili9340,dc_pin=25,rotate=90,speed=32000000,fps=20,bgr
 dtoverlay=ads7846,cs=1,penirq=24,penirq_pull=2,speed=2000000,xohms=60,pmax=255
 ```
 
