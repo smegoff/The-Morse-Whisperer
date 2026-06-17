@@ -2340,7 +2340,7 @@ async function loadSettings(){
     if ($('setAudioFilterBandwidth')) {
       $('setAudioFilterBandwidth').value = cfg.audio_filter_bandwidth_hz ?? 300;
     }
-    $('setLcdBrightness').value=cfg.lcd_brightness_percent ?? 100;
+    $('setLcdBrightness').value=cfg.lcd_brightness_percent ?? 55;
     $('setLcdBrightnessVal').textContent=$('setLcdBrightness').value;
     $('setTftIdleEnabled').value=String(cfg.tft_screen_timeout_enabled !== false);
     $('setTftIdleSeconds').value=cfg.tft_screen_timeout_sec ?? 300;
@@ -3152,7 +3152,7 @@ def create_app(state, ring, config: Dict) -> Flask:
         "audio_filter_narrow_hz": 220,
         "audio_filter_bandwidth_hz": 300,
         "audio_filter_max_hz": 1200,
-        "lcd_brightness_percent": 100,
+        "lcd_brightness_percent": 55,
         "tft_screen_timeout_enabled": True,
         "tft_screen_timeout_sec": 300,
         "tft_screen_timeout_image": "/opt/morse-whisperer-pi/assets/horse_boot_splash.png",

@@ -32,6 +32,7 @@ DEFAULTS: Dict[str, Any] = {
     "display_rotate": 0,
     "display_refresh_sec": 1.0,
     "framebuffer_candidates": ["/dev/fb1", "/dev/fb0"],
+    "lcd_brightness_percent": 55,
     "touchscreen_enabled": True,
     "touchscreen_device": "auto",
     "touchscreen_raw_x_min": 0,

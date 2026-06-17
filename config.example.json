@@ -98,7 +98,7 @@
   "adaptive_word_gap_max_units": 6.4,
   "audio_output_device": "plughw:2,0",
   "input_capture_percent": 70,
-  "lcd_brightness_percent": 100,
+  "lcd_brightness_percent": 55,
   "cw_generator_tone_hz": 700,
   "cw_generator_wpm": 18.75,
   "cw_generator_volume_percent": 35,
