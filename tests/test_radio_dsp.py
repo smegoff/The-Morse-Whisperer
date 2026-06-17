@@ -140,6 +140,17 @@ class RadioToneTests(unittest.TestCase):
                 self.assertLessEqual(abs(result.wpm - wpm), 3.0)
                 self.assertEqual(result.failed_symbols, 0)
 
+    def test_radio_decodes_very_fast_clean_cw(self) -> None:
+        for wpm in (40, 45, 50, 55, 60):
+            with self.subTest(wpm=wpm):
+                samples = synthetic_cw("CQ DE ZL1SXG K", 700, amplitude=0.08, noise=0.0015, wpm=wpm)
+                config = radio_config()
+
+                result = analyse_samples(samples, config)
+
+                self.assertEqual(result.copy, "CQ DE ZL1SXG K")
+                self.assertEqual(result.failed_symbols, 0)
+
     def test_clean_style_config_keeps_legacy_power_selection(self) -> None:
         samples = synthetic_cw("CQ DE ZL1SXG K", 675, amplitude=0.10, noise=0.003)
         t = np.arange(samples.size, dtype=np.float32) / 8000.0

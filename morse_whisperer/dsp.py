@@ -819,11 +819,17 @@ def analyse_samples(samples: np.ndarray, config: Dict, tone_override: Optional[s
     if len(events) != len(events_raw):
         dot_ms = 1200.0 / float(wpm_override) if wpm_override else estimate_dot_ms(events, float(config.get("initial_wpm", 18.75)))
     wpm = 1200.0 / max(1.0, dot_ms)
+    char_gap_units = float(config.get("char_gap_units", 2.25))
+    word_gap_units = float(config.get("word_gap_units", 6.0))
+    if wpm >= float(config.get("radio_fast_gap_wpm", 38.0)):
+        char_gap_units = min(char_gap_units, float(config.get("radio_fast_char_gap_units", 2.0)))
+        word_gap_units = min(word_gap_units, float(config.get("radio_fast_word_gap_units", 5.0)))
+
     raw, decoded, failed, _symbols = decode_events(
         events,
         dot_ms,
-        float(config.get("char_gap_units", 2.25)),
-        float(config.get("word_gap_units", 6.0)),
+        char_gap_units,
+        word_gap_units,
         bool(config.get("adaptive_word_gap_enabled", True)),
         float(config.get("adaptive_word_gap_min_units", 4.8)),
         float(config.get("adaptive_word_gap_max_units", 6.2)),

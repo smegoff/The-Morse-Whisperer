@@ -7,6 +7,9 @@
 - Reduced bias toward the slower default WPM once measured timing indicates
   fast copy, preventing fast dits from being classified as dahs.
 - Added synthetic 28, 30, and 35 WPM regression coverage.
+- Added a Radio fast-gap overlay for 40+ WPM copy, tightening character and
+  word gap thresholds when measured timing is fast.
+- Added synthetic 40, 45, 50, 55, and 60 WPM regression coverage.
 - Disabled the Radio near-silence pre-analysis gate by default so weak receiver
   audio is still analysed.
 
