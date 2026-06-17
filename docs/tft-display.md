@@ -12,12 +12,13 @@ Known-good boot overlay:
 
 ```text
 dtparam=spi=on
-dtoverlay=tft9341,rotate=90,speed=32000000,fps=20
+dtoverlay=fbtft,spi0-0,ili9340,dc_pin=25,rotate=90,speed=32000000,fps=20
+dtoverlay=ads7846,cs=1,penirq=17,penirq_pull=2,speed=2000000,xohms=60,pmax=255
 ```
 
-This overlay drives the ILI9340 framebuffer on SPI CS0 and the ADS7846
-resistive touchscreen on SPI CS1. On the verified appliance the touch input
-appears as:
+The display uses ILI9340 on SPI CS0 with LCD DC on GPIO25. The resistive touch
+controller uses ADS7846/XPT2046 on SPI CS1 with PENIRQ on GPIO17. On the
+verified appliance the touch input appears as:
 
 ```text
 N: Name="ADS7846 Touchscreen"
@@ -32,6 +33,10 @@ Full KMS should be disabled for this SPI framebuffer setup:
 
 The app uses `/dev/fb1` first and falls back to `/dev/fb0`.
 
-The older `pitft28-resistive` overlay brings up the display on some builds, but
-it probes an STMPE touchscreen controller. On this XC9022/GoodTFT unit that
-results in `stmpe-spi spi0.1: unknown chip id: 0x0` and no touch input device.
+The older `pitft28-resistive` overlay brings up the display on this unit, but
+it probes an STMPE touchscreen controller. That results in
+`stmpe-spi spi0.1: unknown chip id: 0x0` and no touch input device.
+
+The `tft9341` overlay brings up ADS7846 touch, but it assumes a different LCD
+DC/reset wiring and leaves this panel white. Use the split `fbtft` + `ads7846`
+configuration above.
