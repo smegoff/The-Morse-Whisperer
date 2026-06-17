@@ -246,18 +246,8 @@ class FramebufferDisplay:
     def draw_button_bar(self, draw, colours):
         bg, panel, panel2, line, text, muted, green, blue, yellow, red = colours
 
-        # Physical button bar.
-        #
-        # Confirmed on this specific TFT with RPi.GPIO pull-ups:
-        #   Button 1 = GPIO23 = PAGE / hold FREEZE
-        #   Button 2 = GPIO22 = SCAN / hold RESTART
-        #   Button 3 = GPIO27 = RESET / hold FULL RESET
-        #   Button 4 = GPIO18 = CLEAR / hold FULL RESET
-        #
-        # Layout goal:
-        #   - taller old-style soft-key boxes
-        #   - physical button number and label inside each box
-        #   - no separate floating labels under/above the button boxes
+        # Touch soft-key bar. The old four-button sidecar used LCD pins on
+        # some builds, so the app now treats these labels as screen regions.
         draw.rounded_rectangle((4, 200, self.width - 4, self.height - 4), radius=8, fill=(8, 13, 18), outline=line)
 
         # Compact hold legend. Keep it inside the footer so it does not

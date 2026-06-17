@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=morsewhisperer
 Group=morsewhisperer
-SupplementaryGroups=audio video
+SupplementaryGroups=audio video input
 WorkingDirectory=/opt/morse-whisperer-pi
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/etc/morse-whisperer/ai.env

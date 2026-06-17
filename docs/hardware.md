@@ -11,10 +11,13 @@ Known-good target:
 
 The XC9022/GoodTFT screen uses important GPIO pins:
 
+- GPIO17 is touchscreen PENIRQ
 - GPIO22 is LCD DC
 - GPIO27 is LCD RESET
 
-Do not use GPIO22 or GPIO27 for physical buttons. Touchscreen input is normally exposed through ADS7846 on `/dev/input/event1` and should be preferred for future soft-button work.
+Do not use GPIO17, GPIO22, or GPIO27 for physical buttons. Touchscreen input is
+exposed through ADS7846, normally `/dev/input/event1`, and should be preferred
+for soft-button work.
 
 ## Audio wiring
 

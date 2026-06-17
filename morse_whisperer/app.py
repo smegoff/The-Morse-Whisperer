@@ -16,6 +16,7 @@ from .dsp import DecodeResult, analyse_samples, audio_metrics
 from .state import SharedState
 from .web import create_app
 from .buttons import SafeTwoButtonMonitor
+from .touch import TouchscreenMonitor
 
 
 DYNAMIC_TONE_MODES = {"session_auto", "auto_session", "dynamic", "auto_lock"}
@@ -62,6 +63,7 @@ class MorseWhispererApp:
 
         self.display = None
         self.buttons = None
+        self.touch = None
 
         # Updated by /api/reset in the web UI. The decoder loop watches this
         # so a reset clears internal stable copy/session state, not just HTML.
@@ -122,6 +124,27 @@ class MorseWhispererApp:
         else:
             self.state.append_status("TFT page requested but display is not active")
 
+    def request_tone_scan(self) -> None:
+        now = time.time()
+        snap = self.state.snapshot()
+        control = snap.get("control", {})
+        if not isinstance(control, dict):
+            control = {}
+        control["tone_scan_requested_at"] = now
+        control["tone_scan_counter"] = int(control.get("tone_scan_counter", 0)) + 1
+
+        q = snap.get("quality", {})
+        if not isinstance(q, dict):
+            q = {}
+        q.update({
+            "live_tone_lock_hz": None,
+            "live_tone_lock_reason": "manual_scan_requested",
+            "reason": "manual_tone_scan_requested",
+        })
+
+        self.state.update(control=control, quality=q)
+        self.state.append_status("Manual tone scan requested from TFT touch")
+
     def request_full_reset(self) -> None:
         self.clear_live_session(clear_tone=True)
         self.clear_accepted_copy()
@@ -179,6 +202,16 @@ class MorseWhispererApp:
             on_toggle_freeze=self.toggle_display_freeze,
         )
         self.buttons.start()
+
+        self.touch = TouchscreenMonitor(
+            self.config,
+            self.state,
+            on_reset=self.request_full_reset,
+            on_tone_scan=self.request_tone_scan,
+            on_next_page=self.next_display_page,
+            on_clear=self.request_full_reset,
+        )
+        self.touch.start()
 
         app = create_app(self.state, self.ring, self.config)
         host = str(self.config.get("web_host", "0.0.0.0"))

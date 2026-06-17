@@ -115,3 +115,13 @@ The TFT COPY page displays the active profile:
 STABLE COPY CLEAN
 STABLE COPY RADIO
 ```
+
+Touchscreen soft keys are available on the footer when the ADS7846 input device
+is present:
+
+```text
+PAGE   SCAN   RESET   CLEAR
+```
+
+`PAGE` advances the TFT page, `SCAN` requests a fresh tone scan, and
+`RESET`/`CLEAR` clear the decoder copy, session, and audio buffer.

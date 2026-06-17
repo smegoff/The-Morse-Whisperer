@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from morse_whisperer.app import MorseWhispererApp
+from morse_whisperer.touch import TouchscreenMonitor
 
 
 class RuntimeResetTests(unittest.TestCase):
@@ -39,6 +40,32 @@ class RuntimeResetTests(unittest.TestCase):
 
         self.assertTrue(app.should_analyse_recent(disconnected)[0])
         self.assertTrue(app.should_analyse_recent(weak_receiver_audio)[0])
+
+    def test_touchscreen_footer_mapping(self) -> None:
+        actions = []
+
+        class DummyState:
+            def append_status(self, message):
+                pass
+
+        monitor = TouchscreenMonitor(
+            {
+                "display_width": 320,
+                "display_height": 240,
+                "touchscreen_footer_top": 200,
+            },
+            DummyState(),
+            on_reset=lambda: actions.append("reset"),
+            on_tone_scan=lambda: actions.append("scan"),
+            on_next_page=lambda: actions.append("page"),
+            on_clear=lambda: actions.append("clear"),
+        )
+
+        for raw_x in (100, 1500, 2600, 3900):
+            monitor._last_action_at = 0
+            monitor.handle_tap(raw_x, 3900)
+
+        self.assertEqual(actions, ["page", "scan", "reset", "clear"])
 
 
 class ProfileSwitchTests(unittest.TestCase):

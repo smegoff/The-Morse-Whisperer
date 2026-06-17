@@ -222,7 +222,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_GROUP
-SupplementaryGroups=audio video
+SupplementaryGroups=audio video input
 WorkingDirectory=$APP_DIR
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/etc/morse-whisperer/ai.env
