@@ -543,9 +543,12 @@ def _gemini_request(config: Dict[str, Any], messages: List[Dict[str, str]]) -> D
         body["systemInstruction"] = {"parts": [{"text": system_text}]}
 
     req = urllib.request.Request(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
         data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
         method="POST",
     )
 
