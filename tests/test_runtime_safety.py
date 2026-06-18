@@ -14,6 +14,7 @@ import numpy as np
 from morse_whisperer.app import MorseWhispererApp
 from morse_whisperer.cq import channel_status, cq_config
 from morse_whisperer.display import FramebufferDisplay
+from morse_whisperer.state import SharedState
 from morse_whisperer.touch import TouchscreenMonitor
 from morse_whisperer.web import create_app
 
@@ -228,29 +229,45 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertEqual(analyse.call_args.args[1]["ai_model"], "gpt-4.1-mini")
 
     def test_web_apps_are_separate_pages(self) -> None:
-        class DummyState:
-            def snapshot(self):
-                return {
-                    "audio": {"level_status": "IDLE", "rms": 0.0},
-                    "quality": {"squelch_open": False, "recent_activity": False},
-                    "decode": {},
-                }
-
-            def update(self, **kwargs):
-                pass
-
-            def append_status(self, message):
-                pass
-
-        app = create_app(DummyState(), None, {"station_callsign": "ZL1SXG"})
+        state = SharedState()
+        state.update(
+            audio={"level_status": "IDLE", "rms": 0.0},
+            quality={"squelch_open": False, "recent_activity": False},
+            decode={},
+        )
+        app = create_app(state, None, {"station_callsign": "ZL1SXG"})
         client = app.test_client()
         decoder_html = client.get("/").data.decode("utf-8")
+        self.assertEqual(state.snapshot()["ui"]["active_app"], "morse")
         cq_html = client.get("/cq").data.decode("utf-8")
+        self.assertEqual(state.snapshot()["ui"]["active_app"], "cq")
 
         self.assertIn('href="/cq"', decoder_html)
         self.assertNotIn('id="cqRagChewCard"', decoder_html)
         self.assertIn("CQ Rag Chew", cq_html)
         self.assertIn("planCqReply", cq_html)
+
+    def test_tft_draws_cq_active_app_screen(self) -> None:
+        state = SharedState()
+        state.update(
+            ui={"active_app": "cq"},
+            config={
+                "cq_callsign": "ZL1SXG",
+                "cq_cat_enabled": False,
+                "cq_ai_provider": "openai",
+                "cq_ai_model": "gpt-4.1-mini",
+                "cq_busy_rms_threshold": 0.006,
+                "cq_busy_snr_threshold_db": 6.0,
+            },
+            audio={"level_status": "IDLE", "rms": 0.0},
+            quality={"squelch_open": False, "recent_activity": False, "snr_db": 0.0},
+            decode={},
+        )
+        display = FramebufferDisplay({"display_enabled": False}, state)
+
+        image = display.draw_screen()
+
+        self.assertEqual(image.size, (display.width, display.height))
 
 
 class ProfileSwitchTests(unittest.TestCase):

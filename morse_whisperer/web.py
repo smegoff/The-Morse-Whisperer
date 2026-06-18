@@ -3152,12 +3152,31 @@ def create_app(state, ring, config: Dict) -> Flask:
     install_ai_routes(app, state, config)
     install_cq_routes(app, state, config)
 
+    def set_active_app(name: str) -> None:
+        try:
+            snap = state.snapshot()
+            ui = snap.get("ui", {}) if isinstance(snap, dict) else {}
+            previous = ui.get("active_app") if isinstance(ui, dict) else None
+            ui = dict(ui) if isinstance(ui, dict) else {}
+            ui["active_app"] = name
+            ui["active_app_changed_at"] = time.time()
+            if hasattr(state, "merge"):
+                state.merge("ui", ui)
+            else:
+                state.update(ui=ui)
+            if previous != name:
+                state.append_status(f"Active app: {'CQ Rag Chew' if name == 'cq' else 'Morse Whisperer'}")
+        except Exception:
+            pass
+
     @app.route("/")
     def index():
+        set_active_app("morse")
         return no_cache_response(HTML, "text/html")
 
     @app.route("/cq")
     def cq_index():
+        set_active_app("cq")
         return no_cache_response(CQ_HTML, "text/html")
 
     @app.route("/api/decode/history")

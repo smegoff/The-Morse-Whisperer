@@ -276,13 +276,14 @@ class FramebufferDisplay:
         draw.rounded_rectangle((x, y, x + w, y + h), radius=3, fill=(15, 22, 30), outline=(55, 70, 85))
         draw.rounded_rectangle((x, y, x + int(w * value), y + h), radius=3, fill=colour)
 
-    def draw_header(self, draw, colours):
+    def draw_header(self, draw, colours, title: str = "The Morse Whisperer", page_label: str | None = None):
         bg, panel, panel2, line, text, muted, green, blue, yellow, red = colours
         draw.rounded_rectangle((4, 4, self.width - 4, 34), radius=8, fill=panel, outline=line)
-        draw.text((12, 9), "The Morse Whisperer", font=self.font_mid, fill=text)
+        draw.text((12, 9), title, font=self.font_mid, fill=text)
 
-        page_w, _ = self.measure_text(draw, self.page, self.font_small)
-        draw.text((self.width - 12 - page_w, 10), self.page, font=self.font_small, fill=blue)
+        label = page_label if page_label is not None else self.page
+        page_w, _ = self.measure_text(draw, label, self.font_small)
+        draw.text((self.width - 12 - page_w, 10), label, font=self.font_small, fill=blue)
 
     def draw_button_bar(self, draw, colours):
         bg, panel, panel2, line, text, muted, green, blue, yellow, red = colours
@@ -581,6 +582,78 @@ class FramebufferDisplay:
 
         self.draw_button_bar(draw, colours)
 
+    def draw_cq_page(self, draw, snap, colours):
+        bg, panel, panel2, line, text, muted, green, blue, yellow, red = colours
+        cfg = snap.get("config", {}) or {}
+        q = snap.get("quality", {}) or {}
+        a = snap.get("audio", {}) or {}
+        dec = snap.get("decode", {}) or {}
+
+        copy = (dec.get("stable_copy") or dec.get("copy") or "").strip()
+        level = str(a.get("level_status") or "--").upper()
+        rms = float(a.get("rms") or 0.0)
+        snr = float(q.get("snr_db") or 0.0)
+        busy_rms = float(cfg.get("cq_busy_rms_threshold") or 0.006)
+        busy_snr = float(cfg.get("cq_busy_snr_threshold_db") or 6.0)
+
+        reasons = []
+        if copy:
+            reasons.append("COPY")
+        if q.get("squelch_open") or q.get("recent_activity"):
+            reasons.append("ACT")
+        if rms >= busy_rms:
+            reasons.append("RMS")
+        if snr >= busy_snr:
+            reasons.append("SNR")
+        if level in ("GOOD", "HOT", "CLIP"):
+            reasons.append(level)
+
+        if reasons:
+            channel = "BUSY"
+            channel_colour = yellow
+            reason = " ".join(reasons)
+        elif level in ("IDLE", "LOW", "--", "") and rms < busy_rms:
+            channel = "CLEAR"
+            channel_colour = green
+            reason = "quiet audio"
+        else:
+            channel = "UNKNOWN"
+            channel_colour = muted
+            reason = "insufficient evidence"
+
+        call = str(cfg.get("cq_callsign") or cfg.get("station_callsign") or "N0CALL").upper()
+        cat = "CAT ON" if cfg.get("cq_cat_enabled") else "CAT OFF"
+        ai = str(cfg.get("cq_ai_provider") or "openai").upper()
+
+        draw.rounded_rectangle((4, 40, self.width - 4, 200), radius=10, fill=panel2, outline=line)
+        draw.text((12, 48), "CQ RAG CHEW", font=self.font_mid, fill=text)
+        draw.text((214, 49), "LISTEN ONLY", font=self.font_small, fill=yellow)
+
+        draw.rounded_rectangle((12, 76, 148, 118), radius=9, fill=panel, outline=channel_colour)
+        draw.text((22, 84), "CHANNEL", font=self.font_tiny, fill=muted)
+        draw.text((22, 98), channel, font=self.font_mid, fill=channel_colour)
+
+        draw.rounded_rectangle((162, 76, 308, 118), radius=9, fill=panel, outline=blue)
+        draw.text((172, 84), "CALLSIGN", font=self.font_tiny, fill=muted)
+        draw.text((172, 98), self.clip_to_width(draw, call, self.font_mid, 126), font=self.font_mid, fill=text)
+
+        rows = [
+            ("Reason", reason),
+            ("CAT", f"{cat}  {cfg.get('cq_cat_device', '/dev/ttyUSB0')}"),
+            ("AI", f"{ai}  {cfg.get('cq_ai_model', 'gpt-4.1-mini')}"),
+            ("Audio", f"{level} rms {rms:.3f}"),
+            ("TX", "DISABLED"),
+        ]
+
+        y = 130
+        for k, v in rows:
+            draw.text((12, y), k, font=self.font_small, fill=muted)
+            colour = red if k == "TX" else text
+            draw.text((82, y), self.clip_to_width(draw, str(v), self.font_small, 220), font=self.font_small, fill=colour)
+            y += 13
+
+        self.draw_button_bar(draw, colours)
+
 
     def draw_splash(self):
         bg = (4, 8, 14)
@@ -676,6 +749,14 @@ class FramebufferDisplay:
 
         img = Image.new("RGB", (self.width, self.height), bg)
         draw = ImageDraw.Draw(img)
+
+        ui = snap.get("ui", {}) if isinstance(snap, dict) else {}
+        active_app = str(ui.get("active_app") or "morse").lower()
+
+        if active_app == "cq":
+            self.draw_header(draw, colours, title="CQ Rag Chew", page_label="CQ")
+            self.draw_cq_page(draw, snap, colours)
+            return img
 
         self.draw_header(draw, colours)
 
