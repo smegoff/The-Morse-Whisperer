@@ -53,6 +53,17 @@ DEFAULTS: Dict[str, Any] = {
     "copy_min_snr": 3.5,
     "clear_after_silence_sec": 25,
     "report_dir": "/opt/morse-whisperer-pi/reports",
+    "cq_enabled": False,
+    "cq_callsign": "ZL1SXG",
+    "cq_cat_enabled": False,
+    "cq_cat_backend": "rigctl",
+    "cq_cat_model": "3073",
+    "cq_cat_device": "/dev/ttyUSB0",
+    "cq_cat_baud": 19200,
+    "cq_band_allowlist": "40m,20m,15m,10m",
+    "cq_busy_rms_threshold": 0.006,
+    "cq_busy_snr_threshold_db": 6.0,
+    "cq_allow_transmit": False,
 }
 
 def load_config(path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:

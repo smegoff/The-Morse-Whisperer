@@ -12,6 +12,7 @@ from unittest import mock
 import numpy as np
 
 from morse_whisperer.app import MorseWhispererApp
+from morse_whisperer.cq import channel_status, cq_config
 from morse_whisperer.display import FramebufferDisplay
 from morse_whisperer.touch import TouchscreenMonitor
 from morse_whisperer.web import create_app
@@ -118,6 +119,59 @@ class RuntimeResetTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(config["clear_after_silence_sec"], 600.0)
+
+    def test_cq_channel_status_marks_clear_idle_audio(self) -> None:
+        snap = {
+            "audio": {"level_status": "IDLE", "rms": 0.001},
+            "quality": {"squelch_open": False, "recent_activity": False, "snr_db": 0.0},
+            "decode": {"stable_copy": ""},
+        }
+
+        status = channel_status(snap, cq_config({"station_callsign": "ZL1SXG"}))
+
+        self.assertEqual(status["state"], "clear")
+
+    def test_cq_channel_status_marks_busy_decoded_copy(self) -> None:
+        snap = {
+            "audio": {"level_status": "LOW", "rms": 0.001},
+            "quality": {"squelch_open": False, "recent_activity": False, "snr_db": 0.0},
+            "decode": {"stable_copy": "CQ CQ DE ZL2ABC K"},
+        }
+
+        status = channel_status(snap, cq_config({"station_callsign": "ZL1SXG"}))
+
+        self.assertEqual(status["state"], "busy")
+        self.assertIn("decoded copy", status["reason"])
+
+    def test_cq_settings_api_keeps_transmit_disabled(self) -> None:
+        class DummyState:
+            def snapshot(self):
+                return {
+                    "audio": {"level_status": "IDLE", "rms": 0.0},
+                    "quality": {"squelch_open": False, "recent_activity": False},
+                    "decode": {},
+                }
+
+            def update(self, **kwargs):
+                pass
+
+            def append_status(self, message):
+                pass
+
+        config = {"station_callsign": "ZL1SXG", "cq_allow_transmit": True}
+        app = create_app(DummyState(), None, config)
+
+        with mock.patch("morse_whisperer.cq.save_config"):
+            response = app.test_client().post(
+                "/api/cq/settings",
+                json={"cq_enabled": True, "cq_callsign": "zl1sxg", "cq_cat_baud": 999999},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(config["cq_enabled"])
+        self.assertEqual(config["cq_callsign"], "ZL1SXG")
+        self.assertEqual(config["cq_cat_baud"], 115200)
+        self.assertFalse(config["cq_allow_transmit"])
 
 
 class ProfileSwitchTests(unittest.TestCase):

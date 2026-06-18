@@ -10,6 +10,7 @@ It provides:
 - TFT display output
 - browser-based status/control UI
 - built-in clean CW generator/self-test
+- CQ Rag Chew listen-only foundation for assisted operating experiments
 - separate decoder profiles for clean generated CW and radio/KiwiSDR CW
 - web and command-line profile switching
 - TFT mode indicator showing `STABLE COPY CLEAN` or `STABLE COPY RADIO`
@@ -144,3 +145,4 @@ If the self-test passes but live CW does not decode, check the audio path first.
 - [Decoder Profiles](docs/decoder-profiles.md)
 - [Recovery Guide](docs/recovery.md)
 - [Changelog](docs/CHANGELOG.md)
+- [CQ Rag Chew](docs/cq-rag-chew.md)

@@ -16,6 +16,7 @@ from typing import Dict
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 from .ai import install_ai_routes
+from .cq import install_cq_routes
 
 from .config import DEFAULTS, save_config
 from .dsp import analyse_samples
@@ -1464,6 +1465,88 @@ input:focus,select:focus,textarea:focus{
         </div>
       </section>
 
+  <section class="card" style="margin-top:16px" id="cqRagChewCard">
+    <div class="cardHead">
+      <h3>CQ Rag Chew</h3>
+      <span id="cqStateBadge" class="badge">listen only</span>
+    </div>
+    <div class="cardBody">
+      <div class="small" style="margin-bottom:10px">
+        Early foundation for assisted CQ/rag-chew operation. This milestone listens, checks CAT status, and judges whether the frequency looks busy. Transmit is deliberately disabled.
+      </div>
+
+      <div class="settingsGrid">
+        <div class="setting">
+          <label for="cqEnabled">CQ app</label>
+          <select id="cqEnabled">
+            <option value="false">Standby</option>
+            <option value="true">Enabled - listen only</option>
+          </select>
+          <div class="hint">Enables CQ Rag Chew status logic. It does not enable transmit.</div>
+        </div>
+
+        <div class="setting">
+          <label for="cqCallsign">Station callsign</label>
+          <input id="cqCallsign" type="text" placeholder="ZL1SXG">
+          <div class="hint">Used for future CQ drafts and logging. Must be a legitimate operator callsign.</div>
+        </div>
+
+        <div class="setting">
+          <label for="cqCatEnabled">CAT status</label>
+          <select id="cqCatEnabled">
+            <option value="false">Disabled</option>
+            <option value="true">Read via rigctl</option>
+          </select>
+          <div class="hint">Read-only radio status for now. Xiegu G90 typically uses 19200 baud.</div>
+        </div>
+
+        <div class="setting">
+          <label for="cqCatDevice">CAT device</label>
+          <input id="cqCatDevice" type="text" placeholder="/dev/ttyUSB0">
+          <div class="hint">Serial device for rigctl/Hamlib.</div>
+        </div>
+
+        <div class="setting">
+          <label for="cqCatModel">Hamlib model</label>
+          <input id="cqCatModel" type="text" placeholder="3073">
+          <div class="hint">Hamlib rig model number. Keep as-is until bench-tested with the radio.</div>
+        </div>
+
+        <div class="setting">
+          <label for="cqCatBaud">CAT baud</label>
+          <input id="cqCatBaud" type="number" min="1200" max="115200" step="1200">
+          <div class="hint">Default 19200 for the G90 CAT path.</div>
+        </div>
+
+        <div class="setting">
+          <label for="cqBands">Band allowlist</label>
+          <input id="cqBands" type="text" placeholder="40m,20m,15m,10m">
+          <div class="hint">Planning guardrail for later frequency changes.</div>
+        </div>
+
+        <div class="setting">
+          <label for="cqBusyRms">Busy RMS threshold</label>
+          <input id="cqBusyRms" type="number" min="0.0001" max="0.2" step="0.0005">
+          <div class="hint">Audio level above this counts as possibly occupied.</div>
+        </div>
+      </div>
+
+      <div class="controls" style="margin-top:14px">
+        <button class="primary" onclick="saveCqSettings()">Save CQ settings</button>
+        <button onclick="loadCqStatus()">Refresh CQ status</button>
+      </div>
+
+      <div class="kv" style="margin-top:12px">
+        <div>Channel</div><div id="cqChannel">--</div>
+        <div>Reason</div><div id="cqReason">--</div>
+        <div>Radio</div><div id="cqRadio">--</div>
+        <div>CAT</div><div id="cqCat">--</div>
+        <div>TX</div><div id="cqTx">disabled</div>
+      </div>
+      <div class="small" id="cqMsg" style="margin-top:10px">CQ Rag Chew is ready for listen-only setup.</div>
+    </div>
+  </section>
+
   <section class="card" style="margin-top:16px">
     <div class="cardHead">
       <h3>Morse Controls</h3>
@@ -2649,6 +2732,66 @@ async function scanWifi(){
   }
 }
 
+function renderCqStatus(s){
+  const cfg=s.config||{}, channel=s.channel||{}, radio=s.radio||{};
+  if($('cqEnabled')) $('cqEnabled').value=String(cfg.cq_enabled===true);
+  if($('cqCallsign')) $('cqCallsign').value=cfg.cq_callsign||'';
+  if($('cqCatEnabled')) $('cqCatEnabled').value=String(cfg.cq_cat_enabled===true);
+  if($('cqCatDevice')) $('cqCatDevice').value=cfg.cq_cat_device||'/dev/ttyUSB0';
+  if($('cqCatModel')) $('cqCatModel').value=cfg.cq_cat_model||'3073';
+  if($('cqCatBaud')) $('cqCatBaud').value=cfg.cq_cat_baud||19200;
+  if($('cqBands')) $('cqBands').value=cfg.cq_band_allowlist||'40m,20m,15m,10m';
+  if($('cqBusyRms')) $('cqBusyRms').value=cfg.cq_busy_rms_threshold ?? 0.006;
+
+  const state=channel.state||'unknown';
+  if($('cqStateBadge')){
+    $('cqStateBadge').textContent=(s.phase||'listen only').replaceAll('_',' ');
+    $('cqStateBadge').className='badge '+(state==='clear'?'good':state==='busy'?'warn':'');
+  }
+  if($('cqChannel')) $('cqChannel').innerHTML='<span class="badge '+(state==='clear'?'good':state==='busy'?'warn':'')+'">'+state.toUpperCase()+'</span>';
+  if($('cqReason')) $('cqReason').textContent=channel.reason||'--';
+  if($('cqRadio')){
+    const freq=radio.frequency_hz ? (Number(radio.frequency_hz)/1000000).toFixed(5)+' MHz' : '--';
+    $('cqRadio').textContent=freq+' '+(radio.mode||'');
+  }
+  if($('cqCat')) $('cqCat').textContent=radio.available ? 'online via '+(radio.backend||'rigctl') : (radio.error||'disabled');
+  if($('cqTx')) $('cqTx').textContent=s.transmit_available ? 'available' : 'disabled in this milestone';
+}
+
+async function loadCqStatus(){
+  try{
+    const r=await fetch('/api/cq/status?ts='+Date.now(),{cache:'no-store'});
+    const s=await r.json();
+    renderCqStatus(s);
+    if($('cqMsg')) $('cqMsg').textContent='CQ status refreshed.';
+  }catch(e){
+    if($('cqMsg')) $('cqMsg').textContent='CQ status failed: '+e;
+  }
+}
+
+async function saveCqSettings(){
+  const payload={
+    cq_enabled:$('cqEnabled')?.value==='true',
+    cq_callsign:$('cqCallsign')?.value||'N0CALL',
+    cq_cat_enabled:$('cqCatEnabled')?.value==='true',
+    cq_cat_backend:'rigctl',
+    cq_cat_device:$('cqCatDevice')?.value||'/dev/ttyUSB0',
+    cq_cat_model:$('cqCatModel')?.value||'3073',
+    cq_cat_baud:Number($('cqCatBaud')?.value||19200),
+    cq_band_allowlist:$('cqBands')?.value||'40m,20m,15m,10m',
+    cq_busy_rms_threshold:Number($('cqBusyRms')?.value||0.006)
+  };
+  try{
+    const r=await fetch('/api/cq/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const s=await r.json();
+    if(!s.ok) throw new Error(s.error||'save failed');
+    if($('cqMsg')) $('cqMsg').textContent='CQ settings saved. Transmit remains disabled.';
+    await loadCqStatus();
+  }catch(e){
+    if($('cqMsg')) $('cqMsg').textContent='CQ save failed: '+e;
+  }
+}
+
 async function tick(){
   try{
     const r=await fetch('/api/snapshot?ts='+Date.now(),{cache:'no-store'});
@@ -2708,6 +2851,9 @@ async function tick(){
     $('buffer').textContent=`${num(a.buffered_seconds,1)}s - trims ${a.overruns||0}`;
 
     updateToneRanking(q.tone_ranking);
+    if(window.__cqTickCounter===undefined) window.__cqTickCounter=0;
+    window.__cqTickCounter += 1;
+    if(window.__cqTickCounter % 4 === 0) loadCqStatus();
 
     const cand=(d.candidate_copy || d.candidate_raw || '').trim();
     $('candidate').textContent=cand || 'No rejected candidate shown.';
@@ -2725,6 +2871,7 @@ async function tick(){
 setInterval(tick,800);
 tick();
 loadSettings();
+loadCqStatus();
 </script>
 
 
@@ -2886,6 +3033,7 @@ def no_cache_response(body: str, mimetype: str) -> Response:
 def create_app(state, ring, config: Dict) -> Flask:
     app = Flask(__name__)
     install_ai_routes(app, state, config)
+    install_cq_routes(app, state, config)
 
     @app.route("/")
     def index():
