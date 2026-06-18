@@ -411,6 +411,8 @@ def dedupe_warnings(warnings: list[Any]) -> list[str]:
         if not text:
             continue
         key = " ".join(text.split()).lower()
+        if "no remote callsign" in key:
+            key = "no_remote_callsign"
         if key in seen:
             continue
         seen.add(key)

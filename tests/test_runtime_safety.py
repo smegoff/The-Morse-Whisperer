@@ -405,10 +405,16 @@ class RuntimeResetTests(unittest.TestCase):
         warnings = dedupe_warnings([
             "No decoded copy available.",
             "No decoded copy available.",
+            "No remote callsign confidently detected.",
+            "No remote callsign detected.",
             " Signal is audible but weak/noisy. ",
         ])
 
-        self.assertEqual(warnings, ["No decoded copy available.", "Signal is audible but weak/noisy."])
+        self.assertEqual(warnings, [
+            "No decoded copy available.",
+            "No remote callsign confidently detected.",
+            "Signal is audible but weak/noisy.",
+        ])
 
     def test_ai_env_api_saves_and_masks_provider_key(self) -> None:
         class DummyState:
