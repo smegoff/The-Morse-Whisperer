@@ -12,7 +12,7 @@ from unittest import mock
 import numpy as np
 
 from morse_whisperer.app import MorseWhispererApp
-from morse_whisperer.cq import channel_status, cq_config, receive_status
+from morse_whisperer.cq import channel_status, cq_config, receive_status, separated_tone_competitor
 from morse_whisperer.display import FramebufferDisplay
 from morse_whisperer.state import SharedState
 from morse_whisperer.touch import TouchscreenMonitor
@@ -188,7 +188,7 @@ class RuntimeResetTests(unittest.TestCase):
                 "snr_db": 8.0,
                 "tone_ranking": [
                     {"tone_hz": 700, "score": 1.0},
-                    {"tone_hz": 720, "score": 0.8},
+                    {"tone_hz": 740, "score": 0.8},
                 ],
             },
             "decode": {},
@@ -198,6 +198,65 @@ class RuntimeResetTests(unittest.TestCase):
 
         self.assertIn("possible_qrm", status["impairments"])
         self.assertGreaterEqual(status["competitor_ratio"], 0.65)
+
+    def test_cq_receive_status_ignores_adjacent_tone_bins_for_qrm(self) -> None:
+        snap = {
+            "audio": {"level_status": "GOOD", "rms": 0.010, "peak": 0.055},
+            "quality": {
+                "squelch_open": False,
+                "recent_activity": False,
+                "snr_db": 11.9,
+                "confidence": 0.66,
+                "tone_ranking": [
+                    {"tone_hz": 1405, "score": 2.24e-5},
+                    {"tone_hz": 1400, "score": 1.97e-5},
+                    {"tone_hz": 1395, "score": 1.60e-5},
+                ],
+            },
+            "decode": {},
+        }
+
+        status = receive_status(snap)
+
+        self.assertNotIn("possible_qrm", status["impairments"])
+        self.assertIsNone(status["competitor_ratio"])
+
+    def test_cq_receive_status_ignores_harmonic_tone_bins_for_qrm(self) -> None:
+        snap = {
+            "audio": {"level_status": "GOOD", "rms": 0.010, "peak": 0.055},
+            "quality": {
+                "squelch_open": False,
+                "recent_activity": False,
+                "snr_db": 11.9,
+                "confidence": 0.66,
+                "envelope_contrast": 0.70,
+                "envelope_transitions": 4,
+                "tone_ranking": [
+                    {"tone_hz": 1405, "score": 2.24e-5},
+                    {"tone_hz": 1400, "score": 1.97e-5},
+                    {"tone_hz": 700, "score": 1.84e-5},
+                    {"tone_hz": 695, "score": 1.65e-5},
+                ],
+            },
+            "decode": {},
+        }
+
+        status = receive_status(snap)
+
+        self.assertNotIn("possible_qrm", status["impairments"])
+        self.assertIsNone(status["competitor_ratio"])
+
+    def test_separated_tone_competitor_skips_nearby_bins(self) -> None:
+        competitor = separated_tone_competitor(
+            [
+                {"tone_hz": 1405, "score": 2.24e-5},
+                {"tone_hz": 1400, "score": 1.97e-5},
+                {"tone_hz": 1100, "score": 1.84e-5},
+            ]
+        )
+
+        self.assertEqual(competitor["tone_hz"], 1100.0)
+        self.assertGreater(competitor["ratio"], 0.65)
 
     def test_cq_receive_status_prefers_candidate_copy(self) -> None:
         snap = {

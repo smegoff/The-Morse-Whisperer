@@ -88,6 +88,37 @@ def clamp_float(value: Any, low: float, high: float, default: float) -> float:
         return default
 
 
+def separated_tone_competitor(tone_ranking: Any, min_separation_hz: float = 25.0) -> Dict[str, Any]:
+    if not isinstance(tone_ranking, list) or len(tone_ranking) < 2:
+        return {"ratio": None, "tone_hz": None, "score": None}
+
+    try:
+        primary = tone_ranking[0] or {}
+        primary_tone = float(primary.get("tone_hz"))
+        primary_score = float(primary.get("score") or 0.0)
+    except Exception:
+        return {"ratio": None, "tone_hz": None, "score": None}
+
+    if primary_score <= 0:
+        return {"ratio": None, "tone_hz": None, "score": None}
+
+    for item in tone_ranking[1:]:
+        try:
+            tone = float((item or {}).get("tone_hz"))
+            score = float((item or {}).get("score") or 0.0)
+        except Exception:
+            continue
+        if abs(tone - primary_tone) < min_separation_hz:
+            continue
+        if abs((tone * 2.0) - primary_tone) < min_separation_hz:
+            continue
+        if abs((primary_tone * 2.0) - tone) < min_separation_hz:
+            continue
+        return {"ratio": score / primary_score, "tone_hz": tone, "score": score}
+
+    return {"ratio": None, "tone_hz": None, "score": None}
+
+
 def channel_status(snapshot: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, Any]:
     audio = snapshot.get("audio", {}) or {}
     quality = snapshot.get("quality", {}) or {}
@@ -195,19 +226,14 @@ def receive_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         impairments.append("possible_qrn")
         advice.append("Impulse noise/static is likely; keep QRN blanker enabled and avoid planning from this burst.")
 
-    competitor_ratio = None
-    if isinstance(tone_ranking, list) and len(tone_ranking) >= 2:
-        try:
-            first = float((tone_ranking[0] or {}).get("score") or 0.0)
-            second = float((tone_ranking[1] or {}).get("score") or 0.0)
-            if first > 0:
-                competitor_ratio = second / first
-        except Exception:
-            competitor_ratio = None
+    competitor = separated_tone_competitor(tone_ranking)
+    competitor_ratio = competitor.get("ratio")
 
     if competitor_ratio is not None and competitor_ratio >= 0.65:
         impairments.append("possible_qrm")
-        advice.append("Competing tones are close in strength; narrow the filter or tune away from the interferer.")
+        advice.append(
+            f"Separated competing tone near {int(float(competitor.get('tone_hz') or 0))} Hz is close in strength; narrow the filter or tune away from the interferer."
+        )
 
     if audible and not heard and snr < 6.0 and "low_modulation" not in impairments:
         impairments.append("weak_or_noisy_signal")
@@ -242,6 +268,7 @@ def receive_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "envelope_contrast": envelope_contrast,
         "envelope_transitions": envelope_transitions,
         "competitor_ratio": competitor_ratio,
+        "competitor_tone_hz": competitor.get("tone_hz"),
         "impairments": impairments,
         "advice": advice,
     }

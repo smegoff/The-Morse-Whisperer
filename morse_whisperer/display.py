@@ -639,10 +639,17 @@ class FramebufferDisplay:
             impairments.append("QRN?")
         if isinstance(tone_ranking, list) and len(tone_ranking) >= 2:
             try:
-                first = float((tone_ranking[0] or {}).get("score") or 0.0)
-                second = float((tone_ranking[1] or {}).get("score") or 0.0)
-                if first > 0 and (second / first) >= 0.65:
-                    impairments.append("QRM?")
+                primary = tone_ranking[0] or {}
+                primary_tone = float(primary.get("tone_hz"))
+                first = float(primary.get("score") or 0.0)
+                for item in tone_ranking[1:]:
+                    tone = float((item or {}).get("tone_hz"))
+                    if abs(tone - primary_tone) < 25.0:
+                        continue
+                    second = float((item or {}).get("score") or 0.0)
+                    if first > 0 and (second / first) >= 0.65:
+                        impairments.append("QRM?")
+                    break
             except Exception:
                 pass
         if channel != "CLEAR" and not copy and envelope_contrast < 0.18 and envelope_transitions < 3:
