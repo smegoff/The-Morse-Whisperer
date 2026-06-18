@@ -157,6 +157,48 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertTrue(status["audible"])
         self.assertEqual(status["heard_text"], "")
 
+    def test_cq_receive_status_flags_low_modulation(self) -> None:
+        snap = {
+            "audio": {"level_status": "LOW", "rms": 0.0035, "peak": 0.018},
+            "quality": {"squelch_open": True, "recent_activity": True, "snr_db": 2.0},
+            "decode": {},
+        }
+
+        status = receive_status(snap)
+
+        self.assertIn("low_modulation", status["impairments"])
+
+    def test_cq_receive_status_flags_qrn_spikes(self) -> None:
+        snap = {
+            "audio": {"level_status": "LOW", "rms": 0.004, "peak": 0.08},
+            "quality": {"squelch_open": False, "recent_activity": True, "snr_db": 2.0},
+            "decode": {},
+        }
+
+        status = receive_status(snap)
+
+        self.assertIn("possible_qrn", status["impairments"])
+
+    def test_cq_receive_status_flags_qrm_competing_tones(self) -> None:
+        snap = {
+            "audio": {"level_status": "GOOD", "rms": 0.02, "peak": 0.08},
+            "quality": {
+                "squelch_open": True,
+                "recent_activity": True,
+                "snr_db": 8.0,
+                "tone_ranking": [
+                    {"tone_hz": 700, "score": 1.0},
+                    {"tone_hz": 720, "score": 0.8},
+                ],
+            },
+            "decode": {},
+        }
+
+        status = receive_status(snap)
+
+        self.assertIn("possible_qrm", status["impairments"])
+        self.assertGreaterEqual(status["competitor_ratio"], 0.65)
+
     def test_cq_receive_status_prefers_candidate_copy(self) -> None:
         snap = {
             "audio": {"level_status": "LOW", "rms": 0.001, "peak": 0.003},

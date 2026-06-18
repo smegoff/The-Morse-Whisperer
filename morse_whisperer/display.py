@@ -595,6 +595,11 @@ class FramebufferDisplay:
         snr = float(q.get("snr_db") or 0.0)
         busy_rms = float(cfg.get("cq_busy_rms_threshold") or 0.006)
         busy_snr = float(cfg.get("cq_busy_snr_threshold_db") or 6.0)
+        peak = float(a.get("peak") or 0.0)
+        clipping = float(a.get("clipping_percent") or 0.0)
+        envelope_contrast = float(q.get("envelope_contrast") or 0.0)
+        envelope_transitions = int(q.get("envelope_transitions") or 0)
+        tone_ranking = q.get("tone_ranking") or []
 
         reasons = []
         if copy:
@@ -625,6 +630,25 @@ class FramebufferDisplay:
         cat = "CAT ON" if cfg.get("cq_cat_enabled") else "CAT OFF"
         ai = str(cfg.get("cq_ai_provider") or "openai").upper()
 
+        impairments = []
+        if channel != "CLEAR" and not copy and (level in ("LOW", "IDLE") or rms < 0.006 or peak < 0.025):
+            impairments.append("LOW MOD")
+        if clipping > 0.05 or level == "CLIP":
+            impairments.append("CLIP")
+        if peak >= max(0.04, rms * 8.0) and not copy:
+            impairments.append("QRN?")
+        if isinstance(tone_ranking, list) and len(tone_ranking) >= 2:
+            try:
+                first = float((tone_ranking[0] or {}).get("score") or 0.0)
+                second = float((tone_ranking[1] or {}).get("score") or 0.0)
+                if first > 0 and (second / first) >= 0.65:
+                    impairments.append("QRM?")
+            except Exception:
+                pass
+        if channel != "CLEAR" and not copy and envelope_contrast < 0.18 and envelope_transitions < 3:
+            impairments.append("FLAT")
+        issue_text = ", ".join(impairments) if impairments else "none"
+
         draw.rounded_rectangle((4, 40, self.width - 4, 200), radius=10, fill=panel2, outline=line)
         draw.text((12, 48), "CQ RAG CHEW", font=self.font_mid, fill=text)
         draw.text((214, 49), "LISTEN ONLY", font=self.font_small, fill=yellow)
@@ -639,9 +663,10 @@ class FramebufferDisplay:
 
         rows = [
             ("Reason", reason),
+            ("Issues", issue_text),
             ("CAT", f"{cat}  {cfg.get('cq_cat_device', '/dev/ttyUSB0')}"),
             ("AI", f"{ai}  {cfg.get('cq_ai_model', 'gpt-4.1-mini')}"),
-            ("Audio", f"{level} rms {rms:.3f}"),
+            ("Audio", f"{level} rms {rms:.3f} pk {peak:.3f}"),
             ("TX", "DISABLED"),
         ]
 

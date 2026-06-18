@@ -85,6 +85,23 @@ The `/api/cq/plan` endpoint uses whatever is currently heard, including
 candidate or non-CQ copy, and asks the AI/local planner to interpret it before
 suggesting any next action.
 
+## QRM, QRN, and Low Modulation
+
+The receive status also reports likely reasons why audio is audible but not
+copyable:
+
+- `low_modulation`: audio is present but too low for reliable copy.
+- `possible_qrn`: short static/impulse spikes are dominating the audio.
+- `possible_qrm`: competing tones are close enough in strength to confuse tone
+  selection.
+- `overdriven_audio`: clipping or excessive input level.
+- `weak_or_noisy_signal`: audible but low-SNR copy.
+- `unkeyed_or_flat_audio`: audio is present but not clearly keyed CW.
+- `messy_copy`: candidate copy exists but has many failed symbols.
+
+These diagnostics are advisory. Use them to tune input level, receiver audio,
+filter width, and operating frequency before adding any transmit behaviour.
+
 ## Planned Phases
 
 1. Read-only CAT and busy-frequency status.

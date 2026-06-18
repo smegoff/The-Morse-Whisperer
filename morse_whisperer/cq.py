@@ -153,6 +153,13 @@ def receive_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     snr = float(quality.get("snr_db") or 0.0)
     confidence = float(quality.get("confidence") or 0.0)
     tone = quality.get("live_tone_lock_hz") or quality.get("selected_tone_hz")
+    tone_ranking = quality.get("tone_ranking") or []
+    clipping = float(audio.get("clipping_percent") or 0.0)
+    marks = int(quality.get("marks") or 0)
+    decoded_symbols = int(quality.get("decoded_symbols") or 0)
+    failed_symbols = int(quality.get("failed_symbols") or 0)
+    envelope_contrast = float(quality.get("envelope_contrast") or 0.0)
+    envelope_transitions = int(quality.get("envelope_transitions") or 0)
 
     audible = bool(
         heard
@@ -172,6 +179,48 @@ def receive_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     else:
         state = "quiet"
 
+    impairments = []
+    advice = []
+
+    if audible and not heard:
+        if level in ("LOW", "IDLE") or rms < 0.006 or peak < 0.025:
+            impairments.append("low_modulation")
+            advice.append("Increase receiver/DE-19 audio level or reduce the busy RMS threshold after bench testing.")
+
+    if clipping > 0.05 or level == "CLIP":
+        impairments.append("overdriven_audio")
+        advice.append("Reduce receiver/USB capture level; clipping will destroy CW timing.")
+
+    if peak >= max(0.04, rms * 8.0) and not heard:
+        impairments.append("possible_qrn")
+        advice.append("Impulse noise/static is likely; keep QRN blanker enabled and avoid planning from this burst.")
+
+    competitor_ratio = None
+    if isinstance(tone_ranking, list) and len(tone_ranking) >= 2:
+        try:
+            first = float((tone_ranking[0] or {}).get("score") or 0.0)
+            second = float((tone_ranking[1] or {}).get("score") or 0.0)
+            if first > 0:
+                competitor_ratio = second / first
+        except Exception:
+            competitor_ratio = None
+
+    if competitor_ratio is not None and competitor_ratio >= 0.65:
+        impairments.append("possible_qrm")
+        advice.append("Competing tones are close in strength; narrow the filter or tune away from the interferer.")
+
+    if audible and not heard and snr < 6.0 and "low_modulation" not in impairments:
+        impairments.append("weak_or_noisy_signal")
+        advice.append("Signal is audible but weak/noisy; wait for more copy or improve filtering.")
+
+    if audible and not heard and envelope_contrast < 0.18 and envelope_transitions < 3:
+        impairments.append("unkeyed_or_flat_audio")
+        advice.append("Audio is present but not clearly keyed CW; check tuning/filter or whether this is speech/noise.")
+
+    if heard and failed_symbols > max(1, decoded_symbols):
+        impairments.append("messy_copy")
+        advice.append("Partial copy has many failed symbols; treat AI output as low-confidence.")
+
     return {
         "state": state,
         "audible": audible,
@@ -187,6 +236,14 @@ def receive_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         "tone_hz": tone,
         "squelch_open": bool(quality.get("squelch_open")),
         "recent_activity": bool(quality.get("recent_activity")),
+        "marks": marks,
+        "decoded_symbols": decoded_symbols,
+        "failed_symbols": failed_symbols,
+        "envelope_contrast": envelope_contrast,
+        "envelope_transitions": envelope_transitions,
+        "competitor_ratio": competitor_ratio,
+        "impairments": impairments,
+        "advice": advice,
     }
 
 
@@ -292,6 +349,7 @@ def cq_plan(snapshot: Dict[str, Any], config: Dict[str, Any], requested_mode: st
     warnings = []
     warnings.extend(analysis.get("warnings") or [])
     warnings.extend(reply.get("warnings") or [])
+    warnings.extend(receive.get("advice") or [])
     if channel.get("state") == "busy" and not copy:
         warnings.append("Audio activity is present, but no usable decoded text is available yet.")
     if channel.get("state") == "clear":

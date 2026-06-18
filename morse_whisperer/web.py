@@ -3042,6 +3042,7 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
       <div class="cardHead"><h2>Live Status</h2><span class="badge">advisory</span></div>
       <div class="kv">
         <div>Receive</div><div id="cqReceive">--</div>
+        <div>Issues</div><div id="cqIssues">--</div>
         <div>Heard</div><div id="cqHeard">--</div>
         <div>Channel</div><div id="cqChannel">--</div>
         <div>Reason</div><div id="cqReason">--</div>
@@ -3075,6 +3076,9 @@ function renderCqStatus(s){
   $('cqChannel').innerHTML='<span class="badge '+(state==='clear'?'good':state==='busy'?'warn':'')+'">'+state.toUpperCase()+'</span>';
   const rxState=receive.state||'quiet';
   $('cqReceive').innerHTML='<span class="badge '+(rxState==='decoded'?'good':rxState==='candidate'||rxState==='audible'?'warn':'')+'">'+rxState.toUpperCase()+'</span> '+(receive.audio_level||'--')+' rms '+Number(receive.rms||0).toFixed(3);
+  const issues=(receive.impairments||[]).join(', ') || 'none';
+  const advice=(receive.advice||[])[0] || '';
+  $('cqIssues').textContent=issues+(advice ? ' - '+advice : '');
   $('cqHeard').textContent=receive.heard_text||'(nothing decoded yet)';
   $('cqReason').textContent=channel.reason||'--';
   const freq=radio.frequency_hz ? (Number(radio.frequency_hz)/1000000).toFixed(5)+' MHz' : '--';
@@ -3120,6 +3124,7 @@ async function planCqReply(){
     const lines=[
       'Phase: '+(s.phase||'--'),
       'Receive: '+(receive.state||'quiet')+' - '+(receive.heard_text||'(no decoded text yet)'),
+      'Issues: '+(((receive.impairments||[]).join(', '))||'none'),
       'Channel: '+(channel.state||'unknown')+' - '+(channel.reason||''),
       'AI provider: '+(analysis.provider||reply.provider||'local')+(analysis.fallback_used||reply.fallback_used?' (fallback used)':''),
       'Intent: '+(analysis.detected_intent||'--'),
