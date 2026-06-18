@@ -2991,6 +2991,7 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
 .kv{display:grid;grid-template-columns:130px 1fr;gap:8px 12px}.kv>div:nth-child(odd){color:var(--muted)}
 .badge{display:inline-flex;align-items:center;border-radius:999px;padding:5px 9px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);font-size:12px}.good{color:var(--green);border-color:rgba(112,255,172,.45)}.warn{color:var(--gold);border-color:rgba(255,211,110,.45)}.bad{color:var(--red);border-color:rgba(255,107,125,.45)}
 .log{white-space:pre-wrap;min-height:150px;line-height:1.45;background:rgba(0,0,0,.22);border:1px solid rgba(126,238,255,.16);border-radius:16px;padding:12px;color:#d7f8ff}
+.waterfall{width:100%;height:260px;border-radius:16px;border:1px solid rgba(126,238,255,.18);background:#02070d;display:block}
 @media(max-width:880px){.grid,.settingsGrid{grid-template-columns:1fr}.topbar{align-items:flex-start;flex-direction:column}}
 </style>
 </head>
@@ -3055,6 +3056,12 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
       <div class="small" id="cqMsg" style="margin-top:10px">CQ Rag Chew is listening.</div>
     </section>
   </div>
+
+  <section class="card" style="margin-top:16px">
+    <div class="cardHead"><h2>Waterfall</h2><span id="waterfallMeta" class="badge">audio spectrum</span></div>
+    <canvas id="waterfallCanvas" class="waterfall" width="960" height="260"></canvas>
+    <div class="small" style="margin-top:8px">Bright vertical traces are tones. Wide bright wash suggests noise; multiple separated traces suggest QRM.</div>
+  </section>
 </div>
 <script>
 function $(id){return document.getElementById(id)}
@@ -3138,8 +3145,46 @@ async function planCqReply(){
     $('cqMsg').textContent='Current audio analysed for review only.';
   }catch(e){$('cqPlan').textContent='CQ plan failed: '+e}
 }
+function colour(v){
+  v=Math.max(0,Math.min(255,Number(v)||0));
+  if(v<60) return [0,4+v,18+v*1.4];
+  if(v<140) return [0,60+v*.8,120+v*.7];
+  if(v<215) return [Math.round((v-140)*2.2),220,130];
+  return [255,Math.max(90,255-(v-215)*3),70];
+}
+async function drawWaterfall(){
+  try{
+    const r=await fetch('/api/waterfall?seconds=3&rows=72&min_hz=250&max_hz=2200&ts='+Date.now(),{cache:'no-store'});
+    const s=await r.json();
+    const canvas=$('waterfallCanvas');
+    const ctx=canvas.getContext('2d');
+    ctx.fillStyle='#02070d';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    const rows=s.rows||[];
+    if(!rows.length){
+      ctx.fillStyle='#8eb4c2';
+      ctx.fillText('Waiting for audio...',16,24);
+      return;
+    }
+    const rowH=canvas.height/rows.length;
+    const bins=rows[0].length||1;
+    const colW=canvas.width/bins;
+    rows.forEach((row,y)=>{
+      row.forEach((val,x)=>{
+        const c=colour(val);
+        ctx.fillStyle='rgb('+c[0]+','+c[1]+','+c[2]+')';
+        ctx.fillRect(Math.floor(x*colW), Math.floor(y*rowH), Math.ceil(colW), Math.ceil(rowH)+1);
+      });
+    });
+    if($('waterfallMeta')) $('waterfallMeta').textContent=Math.round(s.min_hz)+'-'+Math.round(s.max_hz)+' Hz';
+  }catch(e){
+    if($('waterfallMeta')) $('waterfallMeta').textContent='waterfall failed';
+  }
+}
 setInterval(loadCqStatus, 2500);
+setInterval(drawWaterfall, 900);
 loadCqStatus();
+drawWaterfall();
 </script>
 </body>
 </html>
@@ -3207,6 +3252,72 @@ def create_app(state, ring, config: Dict) -> Flask:
     @app.route("/api/snapshot")
     def snapshot():
         resp = jsonify(state.snapshot())
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.route("/api/waterfall")
+    def waterfall():
+        if ring is None or not hasattr(ring, "last"):
+            return jsonify({"ok": False, "error": "audio ring unavailable"}), 503
+
+        try:
+            seconds = max(0.5, min(8.0, float(request.args.get("seconds", 3.0))))
+            rows = max(8, min(96, int(request.args.get("rows", 48))))
+            max_hz = max(300.0, min(4000.0, float(request.args.get("max_hz", 2200.0))))
+            min_hz = max(0.0, min(max_hz - 100.0, float(request.args.get("min_hz", 250.0))))
+        except Exception:
+            seconds, rows, min_hz, max_hz = 3.0, 48, 250.0, 2200.0
+
+        sample_rate = int(config.get("sample_rate", 8000) or 8000)
+        samples = ring.last(seconds)
+        samples = np.asarray(samples, dtype=np.float32)
+        if samples.size < 64:
+            return jsonify({
+                "ok": True,
+                "sample_rate": sample_rate,
+                "min_hz": min_hz,
+                "max_hz": max_hz,
+                "rows": [],
+                "message": "waiting for audio",
+            })
+
+        fft_size = 512
+        if samples.size < fft_size:
+            padded = np.zeros(fft_size, dtype=np.float32)
+            padded[-samples.size:] = samples
+            samples = padded
+
+        hop = max(1, (samples.size - fft_size) // max(1, rows - 1))
+        starts = list(range(max(0, samples.size - fft_size - hop * (rows - 1)), samples.size - fft_size + 1, hop))
+        starts = starts[-rows:]
+        window = np.hanning(fft_size).astype(np.float32)
+        freqs = np.fft.rfftfreq(fft_size, d=1.0 / float(sample_rate))
+        idx = np.where((freqs >= min_hz) & (freqs <= max_hz))[0]
+        if idx.size == 0:
+            idx = np.arange(freqs.size)
+
+        out_rows = []
+        for start in starts:
+            frame = samples[start:start + fft_size]
+            if frame.size != fft_size:
+                continue
+            frame = frame - float(np.mean(frame))
+            spec = np.abs(np.fft.rfft(frame * window))[idx]
+            db = 20.0 * np.log10(spec + 1e-9)
+            floor = float(np.percentile(db, 20))
+            ceil = float(np.percentile(db, 98))
+            span = max(12.0, ceil - floor)
+            norm = np.clip((db - floor) / span, 0.0, 1.0)
+            out_rows.append([int(v) for v in np.round(norm * 255.0)])
+
+        resp = jsonify({
+            "ok": True,
+            "sample_rate": sample_rate,
+            "min_hz": float(freqs[idx[0]]),
+            "max_hz": float(freqs[idx[-1]]),
+            "bin_hz": float(freqs[1] - freqs[0]) if freqs.size > 1 else 0.0,
+            "rows": out_rows,
+        })
         resp.headers["Cache-Control"] = "no-store"
         return resp
 

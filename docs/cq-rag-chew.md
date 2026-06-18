@@ -15,6 +15,7 @@ The first implementation is listen-only foundation work:
 - Audio/decode based busy-frequency judgement.
 - Receive status for any audible activity, not only CQ calls.
 - OpenAI-backed listening analysis and reply drafting via `/api/cq/plan`.
+- Web waterfall display fed by `/api/waterfall` from recent audio.
 - Explicit transmit-disabled safety boundary.
 
 No PTT, frequency changing, automatic CQ calling, or QRZ upload is implemented
@@ -101,6 +102,18 @@ copyable:
 
 These diagnostics are advisory. Use them to tune input level, receiver audio,
 filter width, and operating frequency before adding any transmit behaviour.
+
+## Waterfall
+
+The `/cq` app includes a lightweight audio waterfall. It renders recent audio
+from roughly 250-2200 Hz, which is enough to see CW side tones, obvious QRM,
+wideband noise, and level changes through the DE-19/audio interface.
+
+The JSON source is:
+
+```text
+/api/waterfall?seconds=3&rows=72&min_hz=250&max_hz=2200
+```
 
 ## Planned Phases
 

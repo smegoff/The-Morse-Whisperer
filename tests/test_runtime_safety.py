@@ -373,6 +373,49 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertNotIn('id="cqRagChewCard"', decoder_html)
         self.assertIn("CQ Rag Chew", cq_html)
         self.assertIn("planCqReply", cq_html)
+        self.assertIn("waterfallCanvas", cq_html)
+
+    def test_waterfall_api_returns_spectrum_rows(self) -> None:
+        class DummyRing:
+            def last(self, seconds):
+                sr = 8000
+                t = np.arange(int(sr * 2), dtype=np.float32) / sr
+                return (0.2 * np.sin(2 * np.pi * 700 * t)).astype(np.float32)
+
+        class DummyState:
+            def snapshot(self):
+                return {}
+
+            def update(self, **kwargs):
+                pass
+
+            def append_status(self, message):
+                pass
+
+        app = create_app(DummyState(), DummyRing(), {"station_callsign": "ZL1SXG", "sample_rate": 8000})
+        response = app.test_client().get("/api/waterfall?seconds=2&rows=12&min_hz=250&max_hz=1200")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(len(body["rows"]), 12)
+        self.assertGreater(len(body["rows"][0]), 10)
+
+    def test_waterfall_api_handles_missing_ring(self) -> None:
+        class DummyState:
+            def snapshot(self):
+                return {}
+
+            def update(self, **kwargs):
+                pass
+
+            def append_status(self, message):
+                pass
+
+        app = create_app(DummyState(), None, {"station_callsign": "ZL1SXG", "sample_rate": 8000})
+        response = app.test_client().get("/api/waterfall")
+
+        self.assertEqual(response.status_code, 503)
 
     def test_tft_draws_cq_active_app_screen(self) -> None:
         state = SharedState()
