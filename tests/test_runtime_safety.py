@@ -435,6 +435,8 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertIn("waterfallCanvas", cq_html)
         self.assertIn("Gemini free tier", cq_html)
         self.assertIn("OpenRouter free router", cq_html)
+        self.assertIn("saveAiApiKey", cq_html)
+        self.assertIn("/api/ai/env", cq_html)
 
     def test_waterfall_api_returns_spectrum_rows(self) -> None:
         class DummyRing:

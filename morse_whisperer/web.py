@@ -3177,6 +3177,36 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
 </div>
 <script>
 function $(id){return document.getElementById(id)}
+async function loadAiEnvStatus(){
+  try{
+    const r=await fetch('/api/ai/env?ts='+Date.now(),{cache:'no-store'});
+    const s=await r.json();
+    const provider=$('cqAiProvider') ? $('cqAiProvider').value : 'gemini';
+    const info=(s.providers||{})[provider]||{};
+    if($('cqAiKeyStatus')) $('cqAiKeyStatus').textContent=info.present ? ('Stored '+info.env_key+': '+info.masked) : ('No stored key for '+(info.env_key||provider)+'.');
+  }catch(e){
+    if($('cqAiKeyStatus')) $('cqAiKeyStatus').textContent='API key status unavailable: '+e;
+  }
+}
+async function saveAiApiKey(providerOverride, inputIdOverride){
+  const provider=providerOverride || ($('cqAiProvider') ? $('cqAiProvider').value : 'gemini');
+  const inputId=inputIdOverride || 'cqAiApiKey';
+  const key=$(inputId)?.value||'';
+  if(!key.trim()){
+    if($('cqMsg')) $('cqMsg').textContent='Paste an API key first.';
+    return;
+  }
+  try{
+    const r=await fetch('/api/ai/env',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:provider,api_key:key,restart:true})});
+    const s=await r.json();
+    if(!s.ok) throw new Error(s.error||'save failed');
+    if($(inputId)) $(inputId).value='';
+    if($('cqMsg')) $('cqMsg').textContent='API key saved for '+provider+'. Service restart requested.';
+    await loadAiEnvStatus();
+  }catch(e){
+    if($('cqMsg')) $('cqMsg').textContent='API key save failed: '+e;
+  }
+}
 function renderCqStatus(s){
   const cfg=s.config||{}, channel=s.channel||{}, receive=s.receive||{}, radio=s.radio||{};
   $('cqEnabled').value=String(cfg.cq_enabled===true);
@@ -3294,6 +3324,9 @@ async function drawWaterfall(){
     if($('waterfallMeta')) $('waterfallMeta').textContent='waterfall failed';
   }
 }
+document.addEventListener('change', function(e){
+  if(e.target && e.target.id === 'cqAiProvider') loadAiEnvStatus();
+});
 setInterval(loadCqStatus, 2500);
 setInterval(drawWaterfall, 900);
 loadCqStatus();
