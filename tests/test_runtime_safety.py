@@ -7,12 +7,14 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
 from morse_whisperer.app import MorseWhispererApp
 from morse_whisperer.display import FramebufferDisplay
 from morse_whisperer.touch import TouchscreenMonitor
+from morse_whisperer.web import create_app
 
 
 class RuntimeResetTests(unittest.TestCase):
@@ -93,6 +95,29 @@ class RuntimeResetTests(unittest.TestCase):
 
         display.state.snap["quality"]["recent_activity"] = True
         self.assertFalse(display.should_sleep(display.state.snapshot()))
+
+    def test_settings_api_saves_auto_clear_timeout(self) -> None:
+        class DummyState:
+            def snapshot(self):
+                return {}
+
+            def update(self, **kwargs):
+                pass
+
+            def append_status(self, message):
+                pass
+
+        config = {"clear_after_silence_sec": 20.0}
+        app = create_app(DummyState(), None, config)
+
+        with mock.patch("morse_whisperer.web.save_config"):
+            response = app.test_client().post(
+                "/api/settings",
+                json={"clear_after_silence_sec": 999},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(config["clear_after_silence_sec"], 600.0)
 
 
 class ProfileSwitchTests(unittest.TestCase):

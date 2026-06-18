@@ -1548,6 +1548,12 @@ input:focus,select:focus,textarea:focus{
           </div>
 
           <div class="setting">
+            <label for="setClearSilenceSeconds">Auto-clear quiet time</label>
+            <input id="setClearSilenceSeconds" type="number" min="5" max="600" step="5">
+            <div class="hint">Clears stale decoded noise after this many quiet seconds. 20 is a good starting point.</div>
+          </div>
+
+          <div class="setting">
             <label for="setOutputDevice">USB speaker output</label>
             <input id="setOutputDevice" type="text" placeholder="plughw:2,0">
             <div class="hint">Used by the CW generator via aplay.</div>
@@ -2344,6 +2350,7 @@ async function loadSettings(){
     $('setLcdBrightnessVal').textContent=$('setLcdBrightness').value;
     $('setTftIdleEnabled').value=String(cfg.tft_screen_timeout_enabled !== false);
     $('setTftIdleSeconds').value=cfg.tft_screen_timeout_sec ?? 300;
+    if ($('setClearSilenceSeconds')) $('setClearSilenceSeconds').value=cfg.clear_after_silence_sec ?? 20;
     $('setOutputDevice').value=cfg.audio_output_device||'plughw:2,0';
     if ($('setAiEnabled')) $('setAiEnabled').value=String(cfg.ai_enabled===true);
     if ($('setAiProvider')) $('setAiProvider').value=cfg.ai_provider||'local';
@@ -2388,6 +2395,7 @@ async function saveSettings(){
     tft_screen_timeout_enabled:$('setTftIdleEnabled').value==='true',
     tft_screen_timeout_sec:Math.max(15,Math.min(3600,Number($('setTftIdleSeconds').value||300))),
     tft_screen_timeout_image:'/opt/morse-whisperer-pi/assets/horse_boot_splash.png',
+    clear_after_silence_sec:$('setClearSilenceSeconds') ? Math.max(5,Math.min(600,Number($('setClearSilenceSeconds').value||20))) : 20,
     audio_output_device:$('setOutputDevice').value,
     ai_enabled:$('setAiEnabled') ? ($('setAiEnabled').value==='true') : false,
     ai_provider:$('setAiProvider') ? $('setAiProvider').value : 'local',
@@ -3104,6 +3112,7 @@ def create_app(state, ring, config: Dict) -> Flask:
         "tft_screen_timeout_enabled": bool,
         "tft_screen_timeout_sec": int,
         "tft_screen_timeout_image": str,
+        "clear_after_silence_sec": float,
         "audio_output_device": str,
         "ai_enabled": bool,
         "ai_provider": str,
@@ -3664,6 +3673,8 @@ def create_app(state, ring, config: Dict) -> Flask:
                 value = "wide"
             elif key in ("audio_filter_bandwidth_hz", "audio_filter_wide_hz", "audio_filter_narrow_hz", "audio_filter_max_hz"):
                 value = int(clamp_num(value, 80, 1200, 300))
+            elif key == "clear_after_silence_sec":
+                value = float(clamp_num(value, 5, 600, 20))
 
             config[key] = value
             changed[key] = value
