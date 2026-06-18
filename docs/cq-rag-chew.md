@@ -13,7 +13,8 @@ The first implementation is listen-only foundation work:
 - `/api/cq/settings` JSON endpoint for CQ app settings.
 - Read-only CAT status probing through Hamlib `rigctl` when enabled.
 - Audio/decode based busy-frequency judgement.
-- OpenAI-backed CQ planning and reply drafting via `/api/cq/plan`.
+- Receive status for any audible activity, not only CQ calls.
+- OpenAI-backed listening analysis and reply drafting via `/api/cq/plan`.
 - Explicit transmit-disabled safety boundary.
 
 No PTT, frequency changing, automatic CQ calling, or QRZ upload is implemented
@@ -70,11 +71,25 @@ The current channel state is advisory. It reports `busy`, `clear`, or
 Treat this as a bench-test aid until the radio, audio interface, and CAT path
 are proven together.
 
+## Listening First
+
+CQ Rag Chew does not wait only for a decoded `CQ`. It now reports a receive
+state from the live audio and decoder:
+
+- `quiet`: no useful activity seen
+- `audible`: audio activity is present but no usable text is decoded yet
+- `candidate`: partial/candidate decoded text is available
+- `decoded`: stable decoded copy is available
+
+The `/api/cq/plan` endpoint uses whatever is currently heard, including
+candidate or non-CQ copy, and asks the AI/local planner to interpret it before
+suggesting any next action.
+
 ## Planned Phases
 
 1. Read-only CAT and busy-frequency status.
-2. OpenAI-assisted receive-side CQ detection, callsign extraction, and draft
-   reply planning.
+2. OpenAI-assisted receive-side listening, callsign extraction, intent
+   detection, and draft reply planning.
 3. Local QSO/session log skeleton.
 4. Human-approved CW reply drafting.
 5. Guarded transmit path with explicit arm/disarm, band allowlist, max TX time,

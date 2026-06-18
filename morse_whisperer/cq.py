@@ -137,6 +137,59 @@ def channel_status(snapshot: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, A
     }
 
 
+def receive_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    audio = snapshot.get("audio", {}) or {}
+    quality = snapshot.get("quality", {}) or {}
+    decode = snapshot.get("decode", {}) or {}
+
+    stable = str(decode.get("stable_copy") or decode.get("copy") or "").strip()
+    candidate = str(decode.get("candidate_copy") or decode.get("candidate_raw") or "").strip()
+    raw = str(decode.get("stable_raw") or decode.get("raw") or "").strip()
+    heard = stable or candidate or raw
+
+    level = str(audio.get("level_status") or "").upper()
+    rms = float(audio.get("rms") or 0.0)
+    peak = float(audio.get("peak") or 0.0)
+    snr = float(quality.get("snr_db") or 0.0)
+    confidence = float(quality.get("confidence") or 0.0)
+    tone = quality.get("live_tone_lock_hz") or quality.get("selected_tone_hz")
+
+    audible = bool(
+        heard
+        or quality.get("squelch_open")
+        or quality.get("recent_activity")
+        or level in ("GOOD", "HOT", "CLIP")
+        or rms >= 0.003
+        or peak >= 0.012
+    )
+
+    if stable:
+        state = "decoded"
+    elif candidate:
+        state = "candidate"
+    elif audible:
+        state = "audible"
+    else:
+        state = "quiet"
+
+    return {
+        "state": state,
+        "audible": audible,
+        "heard_text": heard,
+        "stable_copy": stable,
+        "candidate_copy": candidate,
+        "raw": raw,
+        "audio_level": level or "--",
+        "rms": rms,
+        "peak": peak,
+        "snr_db": snr,
+        "confidence": confidence,
+        "tone_hz": tone,
+        "squelch_open": bool(quality.get("squelch_open")),
+        "recent_activity": bool(quality.get("recent_activity")),
+    }
+
+
 def read_cat_status(cfg: Dict[str, Any]) -> Dict[str, Any]:
     status = {
         "enabled": bool(cfg.get("cq_cat_enabled")),
@@ -206,19 +259,12 @@ def cq_status(snapshot: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any
         },
         "radio": read_cat_status(cfg),
         "channel": channel_status(snapshot, cfg),
+        "receive": receive_status(snapshot),
     }
 
 
 def latest_copy(snapshot: Dict[str, Any]) -> str:
-    decode = snapshot.get("decode", {}) or {}
-    return str(
-        decode.get("stable_copy")
-        or decode.get("copy")
-        or decode.get("candidate_copy")
-        or decode.get("stable_raw")
-        or decode.get("raw")
-        or ""
-    ).strip()
+    return str(receive_status(snapshot).get("heard_text") or "").strip()
 
 
 def cq_ai_config(config: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -236,6 +282,7 @@ def cq_plan(snapshot: Dict[str, Any], config: Dict[str, Any], requested_mode: st
     cfg = cq_config(config)
     channel = channel_status(snapshot, cfg)
     radio = read_cat_status(cfg)
+    receive = receive_status(snapshot)
     copy = latest_copy(snapshot)
     ai_cfg = cq_ai_config(config, cfg)
 
@@ -246,9 +293,9 @@ def cq_plan(snapshot: Dict[str, Any], config: Dict[str, Any], requested_mode: st
     warnings.extend(analysis.get("warnings") or [])
     warnings.extend(reply.get("warnings") or [])
     if channel.get("state") == "busy" and not copy:
-        warnings.append("Frequency appears busy, but no usable copy is available yet.")
+        warnings.append("Audio activity is present, but no usable decoded text is available yet.")
     if channel.get("state") == "clear":
-        warnings.append("No station is currently copied; a CQ draft is not generated until transmit controls exist.")
+        warnings.append("Frequency appears quiet; continue listening or tune before planning a response.")
 
     return {
         "ok": True,
@@ -257,6 +304,7 @@ def cq_plan(snapshot: Dict[str, Any], config: Dict[str, Any], requested_mode: st
         "transmit_available": False,
         "copy": copy,
         "channel": channel,
+        "receive": receive,
         "radio": radio,
         "analysis": analysis,
         "reply": reply,

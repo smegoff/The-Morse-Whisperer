@@ -3001,7 +3001,7 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
       <div class="logo">CQ</div>
       <div>
         <h1>CQ Rag Chew</h1>
-        <div class="sub">Listen-only assisted operating foundation</div>
+        <div class="sub">Listen to the frequency first, then plan the QSO</div>
       </div>
     </div>
     <div class="controls">
@@ -3034,13 +3034,15 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
       <div class="controls" style="margin-top:14px">
         <button class="primary" onclick="saveCqSettings()">Save CQ settings</button>
         <button onclick="loadCqStatus()">Refresh status</button>
-        <button onclick="planCqReply()">Plan next reply</button>
+        <button onclick="planCqReply()">Analyse current audio</button>
       </div>
     </section>
 
     <section class="card">
       <div class="cardHead"><h2>Live Status</h2><span class="badge">advisory</span></div>
       <div class="kv">
+        <div>Receive</div><div id="cqReceive">--</div>
+        <div>Heard</div><div id="cqHeard">--</div>
         <div>Channel</div><div id="cqChannel">--</div>
         <div>Reason</div><div id="cqReason">--</div>
         <div>Radio</div><div id="cqRadio">--</div>
@@ -3048,15 +3050,15 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
         <div>AI</div><div id="cqAi">--</div>
         <div>TX</div><div id="cqTx">disabled</div>
       </div>
-      <pre class="log" id="cqPlan" style="margin-top:12px">No CQ plan yet.</pre>
-      <div class="small" id="cqMsg" style="margin-top:10px">CQ Rag Chew is ready.</div>
+      <pre class="log" id="cqPlan" style="margin-top:12px">Listening. Press Analyse current audio once there is copy or audible activity.</pre>
+      <div class="small" id="cqMsg" style="margin-top:10px">CQ Rag Chew is listening.</div>
     </section>
   </div>
 </div>
 <script>
 function $(id){return document.getElementById(id)}
 function renderCqStatus(s){
-  const cfg=s.config||{}, channel=s.channel||{}, radio=s.radio||{};
+  const cfg=s.config||{}, channel=s.channel||{}, receive=s.receive||{}, radio=s.radio||{};
   $('cqEnabled').value=String(cfg.cq_enabled===true);
   $('cqCallsign').value=cfg.cq_callsign||'';
   $('cqCatEnabled').value=String(cfg.cq_cat_enabled===true);
@@ -3071,6 +3073,9 @@ function renderCqStatus(s){
   $('cqStateBadge').textContent=(s.phase||'listen only').replaceAll('_',' ');
   $('cqStateBadge').className='badge '+(state==='clear'?'good':state==='busy'?'warn':'');
   $('cqChannel').innerHTML='<span class="badge '+(state==='clear'?'good':state==='busy'?'warn':'')+'">'+state.toUpperCase()+'</span>';
+  const rxState=receive.state||'quiet';
+  $('cqReceive').innerHTML='<span class="badge '+(rxState==='decoded'?'good':rxState==='candidate'||rxState==='audible'?'warn':'')+'">'+rxState.toUpperCase()+'</span> '+(receive.audio_level||'--')+' rms '+Number(receive.rms||0).toFixed(3);
+  $('cqHeard').textContent=receive.heard_text||'(nothing decoded yet)';
   $('cqReason').textContent=channel.reason||'--';
   const freq=radio.frequency_hz ? (Number(radio.frequency_hz)/1000000).toFixed(5)+' MHz' : '--';
   $('cqRadio').textContent=freq+' '+(radio.mode||'');
@@ -3106,25 +3111,26 @@ async function saveCqSettings(){
   await loadCqStatus();
 }
 async function planCqReply(){
-  $('cqPlan').textContent='Planning from current copy...';
+  $('cqPlan').textContent='Listening and analysing current audio/copy...';
   try{
     const r=await fetch('/api/cq/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'auto'})});
     const s=await r.json();
-    const analysis=s.analysis||{}, reply=s.reply||{}, channel=s.channel||{};
+    const analysis=s.analysis||{}, reply=s.reply||{}, channel=s.channel||{}, receive=s.receive||{};
     const warnings=(s.warnings||[]).concat((reply.warnings||[])).filter(Boolean);
     const lines=[
       'Phase: '+(s.phase||'--'),
+      'Receive: '+(receive.state||'quiet')+' - '+(receive.heard_text||'(no decoded text yet)'),
       'Channel: '+(channel.state||'unknown')+' - '+(channel.reason||''),
       'AI provider: '+(analysis.provider||reply.provider||'local')+(analysis.fallback_used||reply.fallback_used?' (fallback used)':''),
       'Intent: '+(analysis.detected_intent||'--'),
       'Station: '+(analysis.their_call||'--'),
-      'Draft: '+(reply.suggested_reply_text||'(no draft yet)'),
+      'Draft / next action: '+(reply.suggested_reply_text||'(listen only; no reply drafted yet)'),
       'Meaning: '+(reply.plain_english||analysis.plain_english||'--'),
       'TX: disabled in this milestone'
     ];
     if(warnings.length) lines.push('Warnings: '+warnings.join(' | '));
     $('cqPlan').textContent=lines.join('\n');
-    $('cqMsg').textContent='CQ plan generated for review only.';
+    $('cqMsg').textContent='Current audio analysed for review only.';
   }catch(e){$('cqPlan').textContent='CQ plan failed: '+e}
 }
 setInterval(loadCqStatus, 2500);

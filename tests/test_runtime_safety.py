@@ -12,7 +12,7 @@ from unittest import mock
 import numpy as np
 
 from morse_whisperer.app import MorseWhispererApp
-from morse_whisperer.cq import channel_status, cq_config
+from morse_whisperer.cq import channel_status, cq_config, receive_status
 from morse_whisperer.display import FramebufferDisplay
 from morse_whisperer.state import SharedState
 from morse_whisperer.touch import TouchscreenMonitor
@@ -144,6 +144,31 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertEqual(status["state"], "busy")
         self.assertIn("decoded copy", status["reason"])
 
+    def test_cq_receive_status_reports_audible_non_cq_audio(self) -> None:
+        snap = {
+            "audio": {"level_status": "GOOD", "rms": 0.012, "peak": 0.04},
+            "quality": {"squelch_open": False, "recent_activity": False, "snr_db": 2.0},
+            "decode": {},
+        }
+
+        status = receive_status(snap)
+
+        self.assertEqual(status["state"], "audible")
+        self.assertTrue(status["audible"])
+        self.assertEqual(status["heard_text"], "")
+
+    def test_cq_receive_status_prefers_candidate_copy(self) -> None:
+        snap = {
+            "audio": {"level_status": "LOW", "rms": 0.001, "peak": 0.003},
+            "quality": {"squelch_open": False, "recent_activity": True, "snr_db": 4.0},
+            "decode": {"candidate_copy": "UR RST 579"},
+        }
+
+        status = receive_status(snap)
+
+        self.assertEqual(status["state"], "candidate")
+        self.assertEqual(status["heard_text"], "UR RST 579")
+
     def test_cq_settings_api_keeps_transmit_disabled(self) -> None:
         class DummyState:
             def snapshot(self):
@@ -224,6 +249,7 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         body = response.get_json()
         self.assertFalse(body["transmit_available"])
+        self.assertEqual(body["receive"]["state"], "decoded")
         self.assertEqual(body["reply"]["provider"], "openai")
         self.assertEqual(analyse.call_args.args[1]["ai_provider"], "openai")
         self.assertEqual(analyse.call_args.args[1]["ai_model"], "gpt-4.1-mini")
