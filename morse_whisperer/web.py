@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import io
 import os
 import random
 import shlex
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import Dict
 
 from flask import Flask, Response, jsonify, request, send_from_directory
-from .ai import install_ai_routes
+from .ai import install_ai_routes, transcribe_audio_gemini
 from .cq import install_cq_routes
 
 from .config import DEFAULTS, save_config
@@ -79,6 +80,20 @@ def _write_env_file(values: Dict[str, str], path: Path | None = None) -> None:
     except OSError:
         pass
     tmp.replace(path)
+
+
+def samples_to_wav_bytes(samples: np.ndarray, sample_rate: int) -> bytes:
+    samples = np.asarray(samples, dtype=np.float32)
+    samples = np.nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)
+    samples = np.clip(samples, -1.0, 1.0)
+    pcm = (samples * 32767.0).astype("<i2", copy=False)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(int(sample_rate))
+        wav.writeframes(pcm.tobytes())
+    return buf.getvalue()
 
 HTML = r"""
 <!doctype html>
@@ -3148,6 +3163,7 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
         <button onclick="saveAiApiKey($('cqAiProvider').value,'cqAiApiKey')">Save API key & restart</button>
         <button onclick="loadCqStatus()">Refresh status</button>
         <button onclick="planCqReply()">Analyse current audio</button>
+        <button onclick="transcribeVoice()">Transcribe voice</button>
       </div>
     </section>
 
@@ -3165,6 +3181,7 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
         <div>TX</div><div id="cqTx">disabled</div>
       </div>
       <pre class="log" id="cqPlan" style="margin-top:12px">Listening. Press Analyse current audio once there is copy or audible activity.</pre>
+      <pre class="log" id="cqVoice" style="margin-top:12px;min-height:96px">Voice transcript will appear here after pressing Transcribe voice.</pre>
       <div class="small" id="cqMsg" style="margin-top:10px">CQ Rag Chew is listening.</div>
     </section>
   </div>
@@ -3287,6 +3304,29 @@ async function planCqReply(){
     $('cqPlan').textContent=lines.join('\n');
     $('cqMsg').textContent='Current audio analysed for review only.';
   }catch(e){$('cqPlan').textContent='CQ plan failed: '+e}
+}
+async function transcribeVoice(){
+  $('cqVoice').textContent='Capturing recent receive audio and asking Gemini to transcribe speech...';
+  try{
+    const r=await fetch('/api/cq/voice/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seconds:12})});
+    const s=await r.json();
+    const warnings=(s.warnings||[]).filter(Boolean);
+    const lines=[
+      'Provider: '+(s.provider||'--')+' / '+(s.model||'--'),
+      'Audio: '+Number(s.duration_sec||0).toFixed(1)+'s, rms '+Number(s.rms||0).toFixed(4)+', peak '+Number(s.peak||0).toFixed(4),
+      'Speech: '+(s.heard_speech ? 'heard' : 'not clear'),
+      'Confidence: '+Number(s.confidence||0).toFixed(2),
+      'Transcript: '+(s.transcript||'(no intelligible speech)'),
+      'Summary: '+(s.summary||'--')
+    ];
+    if(!r.ok || s.error) lines.push('Error: '+(s.error||r.status));
+    if(warnings.length) lines.push('Warnings: '+warnings.join(' | '));
+    $('cqVoice').textContent=lines.join('\n');
+    $('cqMsg').textContent=r.ok ? 'Voice transcription complete.' : 'Voice transcription failed; see transcript panel.';
+  }catch(e){
+    $('cqVoice').textContent='Voice transcription failed: '+e;
+    $('cqMsg').textContent='Voice transcription failed.';
+  }
 }
 function colour(v){
   v=Math.max(0,Math.min(255,Number(v)||0));
@@ -3466,6 +3506,71 @@ def create_app(state, ring, config: Dict) -> Flask:
         })
         resp.headers["Cache-Control"] = "no-store"
         return resp
+
+    @app.route("/api/cq/voice/transcribe", methods=["POST"])
+    def cq_voice_transcribe():
+        if ring is None or not hasattr(ring, "last"):
+            return jsonify({"ok": False, "error": "audio ring unavailable"}), 503
+
+        data = request.get_json(silent=True) or {}
+        try:
+            seconds = max(2.0, min(30.0, float(data.get("seconds", 12.0))))
+        except Exception:
+            seconds = 12.0
+
+        sample_rate = int(config.get("sample_rate", 8000) or 8000)
+        samples = np.asarray(ring.last(seconds), dtype=np.float32)
+        duration = float(samples.size) / float(sample_rate) if sample_rate > 0 else 0.0
+
+        if samples.size < int(sample_rate * 1.0):
+            return jsonify({
+                "ok": False,
+                "error": "not enough audio buffered yet",
+                "sample_rate": sample_rate,
+                "duration_sec": duration,
+            }), 409
+
+        rms = float(np.sqrt(np.mean(np.square(samples)))) if samples.size else 0.0
+        peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+        wav_bytes = samples_to_wav_bytes(samples, sample_rate)
+
+        try:
+            result = transcribe_audio_gemini(wav_bytes, config, sample_rate, duration)
+        except Exception as exc:
+            result = {
+                "ok": False,
+                "error": str(exc),
+                "provider": "gemini",
+                "model": str(config.get("cq_voice_model") or config.get("cq_ai_model") or "gemini-2.5-flash-lite"),
+                "transcript": "",
+                "heard_speech": False,
+                "warnings": [str(exc)],
+                "sample_rate": sample_rate,
+                "duration_sec": duration,
+                "rms": rms,
+                "peak": peak,
+            }
+            status_code = 502
+        else:
+            result["rms"] = rms
+            result["peak"] = peak
+            status_code = 200
+
+        snap = state.snapshot()
+        cq_voice = snap.get("cq_voice", {}) if isinstance(snap, dict) else {}
+        cq_voice = dict(cq_voice) if isinstance(cq_voice, dict) else {}
+        cq_voice.update({
+            "updated_at": time.time(),
+            "last_result": result,
+            "duration_sec": duration,
+            "rms": rms,
+            "peak": peak,
+        })
+        state.update(cq_voice=cq_voice)
+
+        resp = jsonify(result)
+        resp.headers["Cache-Control"] = "no-store"
+        return resp, status_code
 
     @app.route("/api/reset", methods=["POST"])
     def reset():

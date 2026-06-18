@@ -3,6 +3,7 @@
 # is assistance only: analysis/reply suggestions for human review.
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -586,6 +587,105 @@ def _provider_request(config: Dict[str, Any], messages: List[Dict[str, str]]) ->
             "openrouter/free",
         )
     raise RuntimeError(f"Unsupported AI provider: {provider}")
+
+
+def transcribe_audio_gemini(wav_bytes: bytes, config: Dict[str, Any], sample_rate: int, duration_sec: float) -> Dict[str, Any]:
+    api_key_env = _env_key(config, "gemini")
+    api_key = os.environ.get(api_key_env, "").strip()
+
+    if not api_key:
+        raise RuntimeError(f"{api_key_env} is not set in systemd environment")
+    if not wav_bytes:
+        raise RuntimeError("No audio bytes supplied")
+
+    model = str(
+        config.get("cq_voice_model")
+        or config.get("cq_ai_model")
+        or config.get("ai_model")
+        or "gemini-2.5-flash-lite"
+    )
+    timeout = float(config.get("ai_timeout_sec", 30) or 30)
+    prompt = (
+        "Transcribe the speech in this amateur radio receive audio. "
+        "The audio may contain QRM, QRN, weak modulation, static, heterodynes, and silence. "
+        "Return strict JSON only with keys: ok, transcript, confidence, language, "
+        "heard_speech, callsigns, summary, warnings. "
+        "Do not invent words, callsigns, signal reports, names, or locations. "
+        "If speech is not intelligible, set transcript to an empty string, heard_speech to false, "
+        "and explain briefly in warnings."
+    )
+    body = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": prompt},
+                    {
+                        "inlineData": {
+                            "mimeType": "audio/wav",
+                            "data": base64.b64encode(wav_bytes).decode("ascii"),
+                        }
+                    },
+                ],
+            }
+        ],
+        "generationConfig": {
+            "temperature": float(config.get("ai_temperature", 0.1) or 0.1),
+            "maxOutputTokens": int(config.get("ai_max_output_tokens", 700) or 700),
+            "responseMimeType": "application/json",
+        },
+    }
+
+    req = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+            payload = json.loads(raw)
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        raise RuntimeError(f"gemini HTTP {e.code}: {detail[:800]}") from e
+
+    output_text = _gemini_response_text(payload)
+    if not output_text:
+        raise RuntimeError("gemini response did not include output text")
+
+    try:
+        parsed = json.loads(_strip_code_fences(output_text))
+    except Exception:
+        parsed = {
+            "ok": True,
+            "transcript": output_text.strip(),
+            "confidence": 0.5,
+            "language": None,
+            "heard_speech": bool(output_text.strip()),
+            "callsigns": [],
+            "summary": "",
+            "warnings": ["Gemini returned plain text instead of JSON."],
+        }
+
+    if not isinstance(parsed, dict):
+        raise RuntimeError("gemini transcript output JSON was not an object")
+
+    parsed.setdefault("ok", True)
+    parsed.setdefault("transcript", "")
+    parsed.setdefault("confidence", 0.0)
+    parsed.setdefault("heard_speech", bool(str(parsed.get("transcript") or "").strip()))
+    parsed.setdefault("warnings", [])
+    parsed["provider"] = "gemini"
+    parsed["model"] = model
+    parsed["sample_rate"] = int(sample_rate)
+    parsed["duration_sec"] = float(duration_sec)
+    parsed["local_only"] = False
+    return parsed
 
 
 def _analysis_prompt(text: str, config: Dict[str, Any], snap: Optional[Dict[str, Any]], local: Dict[str, Any]) -> List[Dict[str, str]]:

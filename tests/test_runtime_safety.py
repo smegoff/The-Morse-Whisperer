@@ -17,7 +17,7 @@ from morse_whisperer.cq import channel_status, cq_config, receive_status, separa
 from morse_whisperer.display import FramebufferDisplay
 from morse_whisperer.state import SharedState
 from morse_whisperer.touch import TouchscreenMonitor
-from morse_whisperer.web import create_app
+from morse_whisperer.web import create_app, samples_to_wav_bytes
 
 
 class RuntimeResetTests(unittest.TestCase):
@@ -437,6 +437,8 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertIn("OpenRouter free router", cq_html)
         self.assertIn("saveAiApiKey", cq_html)
         self.assertIn("/api/ai/env", cq_html)
+        self.assertIn("transcribeVoice", cq_html)
+        self.assertIn("cqVoice", cq_html)
 
     def test_waterfall_api_returns_spectrum_rows(self) -> None:
         class DummyRing:
@@ -479,6 +481,58 @@ class RuntimeResetTests(unittest.TestCase):
         response = app.test_client().get("/api/waterfall")
 
         self.assertEqual(response.status_code, 503)
+
+    def test_samples_to_wav_bytes_writes_mono_pcm(self) -> None:
+        samples = np.array([-1.0, 0.0, 1.0], dtype=np.float32)
+        data = samples_to_wav_bytes(samples, 8000)
+
+        self.assertGreater(len(data), 44)
+        self.assertEqual(data[:4], b"RIFF")
+        self.assertIn(b"WAVE", data[:16])
+
+    def test_cq_voice_transcribe_uses_recent_audio_without_transmit(self) -> None:
+        class DummyRing:
+            def last(self, seconds):
+                sr = 8000
+                t = np.arange(int(sr * 3), dtype=np.float32) / sr
+                return (0.05 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+
+        class DummyState:
+            def __init__(self):
+                self.data = {}
+
+            def snapshot(self):
+                return dict(self.data)
+
+            def update(self, **kwargs):
+                self.data.update(kwargs)
+
+            def append_status(self, message):
+                pass
+
+        state = DummyState()
+        app = create_app(state, DummyRing(), {"station_callsign": "ZL1SXG", "sample_rate": 8000})
+
+        with mock.patch(
+            "morse_whisperer.web.transcribe_audio_gemini",
+            return_value={
+                "ok": True,
+                "provider": "gemini",
+                "model": "gemini-2.5-flash-lite",
+                "transcript": "CQ forty metres",
+                "confidence": 0.8,
+                "heard_speech": True,
+                "warnings": [],
+            },
+        ) as transcribe:
+            response = app.test_client().post("/api/cq/voice/transcribe", json={"seconds": 3})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["transcript"], "CQ forty metres")
+        self.assertEqual(body["provider"], "gemini")
+        self.assertIn("cq_voice", state.data)
+        self.assertGreater(len(transcribe.call_args.args[0]), 44)
 
     def test_tft_draws_cq_active_app_screen(self) -> None:
         state = SharedState()

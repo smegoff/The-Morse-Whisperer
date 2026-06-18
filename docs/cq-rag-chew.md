@@ -15,6 +15,7 @@ The first implementation is listen-only foundation work:
 - Audio/decode based busy-frequency judgement.
 - Receive status for any audible activity, not only CQ calls.
 - Provider-backed listening analysis and reply drafting via `/api/cq/plan`.
+- Press-to-transcribe voice receive audio via `/api/cq/voice/transcribe`.
 - Web waterfall display fed by `/api/waterfall` from recent audio.
 - Explicit transmit-disabled safety boundary.
 
@@ -129,6 +130,22 @@ The JSON source is:
 ```text
 /api/waterfall?seconds=3&rows=72&min_hz=250&max_hz=2200
 ```
+
+## Voice Transcription
+
+The `/cq` app has a **Transcribe voice** button. It captures the most recent
+receive audio from the same audio ring used by the decoder, packages it as a
+mono WAV file, and asks Gemini to transcribe any speech it can hear:
+
+```text
+POST /api/cq/voice/transcribe
+```
+
+This is a listen-only, press-to-transcribe feature. It is not a real-time speech
+stream yet. Google documents Gemini audio understanding as suitable for
+transcription, but not real-time transcription; the future streaming path should
+use a dedicated streaming STT engine or Gemini Live once the listen-only flow is
+proven.
 
 ## Planned Phases
 
