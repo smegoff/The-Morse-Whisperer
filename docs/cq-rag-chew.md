@@ -47,7 +47,11 @@ CQ settings live in `config.json` and are preserved by profile switching:
 `cq_allow_transmit` is forced false by the CQ API. It is present as an explicit
 future guardrail, not as an active feature.
 
-External AI providers use the existing service environment file:
+External AI provider keys can be saved from the web UI. In CQ Rag Chew, choose
+the provider, paste the key into **Provider API key**, and press **Save API key
+& restart**.
+
+Under the hood, keys are stored in the service environment file:
 
 ```text
 /etc/morse-whisperer/ai.env
@@ -62,9 +66,11 @@ OPENROUTER_API_KEY=...
 OPENAI_API_KEY=...
 ```
 
-Supported `cq_ai_provider` values are `local`, `gemini`, `groq`,
-`openrouter`, and `openai`. If the key is absent or the provider fails, CQ
-planning falls back to the local rules engine and reports a warning.
+The installer creates this file as `root:morsewhisperer` with mode `0660` so
+the web service can update only this env file. Supported `cq_ai_provider`
+values are `local`, `gemini`, `groq`, `openrouter`, and `openai`. If the key is
+absent or the provider fails, CQ planning falls back to the local rules engine
+and reports a warning.
 
 ## Busy-Frequency Judgement
 

@@ -156,6 +156,12 @@ if [ -f "$APP_DIR/config.json" ]; then
   chmod 664 "$APP_DIR/config.json"
 fi
 
+mkdir -p /etc/morse-whisperer
+touch /etc/morse-whisperer/ai.env
+chown root:"$SERVICE_GROUP" /etc/morse-whisperer /etc/morse-whisperer/ai.env
+chmod 775 /etc/morse-whisperer
+chmod 660 /etc/morse-whisperer/ai.env
+
 chmod +x "$APP_DIR/tools/"*.sh 2>/dev/null || true
 chmod +x "$APP_DIR/tools/"*.py 2>/dev/null || true
 

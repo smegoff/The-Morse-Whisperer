@@ -380,6 +380,40 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertTrue(result["fallback_used"])
         self.assertIn("GEMINI_API_KEY", " ".join(result["warnings"]))
 
+    def test_ai_env_api_saves_and_masks_provider_key(self) -> None:
+        class DummyState:
+            def snapshot(self):
+                return {}
+
+            def update(self, **kwargs):
+                pass
+
+            def append_status(self, message):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / "ai.env"
+            app = create_app(DummyState(), None, {"station_callsign": "ZL1SXG"})
+
+            with mock.patch("morse_whisperer.web.AI_ENV_PATH", env_path):
+                response = app.test_client().post(
+                    "/api/ai/env",
+                    json={"provider": "gemini", "api_key": "abcd1234efgh5678", "restart": False},
+                )
+                self.assertEqual(response.status_code, 200)
+                body = response.get_json()
+                self.assertTrue(body["ok"])
+                self.assertEqual(body["env_key"], "GEMINI_API_KEY")
+                self.assertNotIn("abcd1234efgh5678", json.dumps(body))
+
+                saved = env_path.read_text(encoding="utf-8")
+                self.assertIn("GEMINI_API_KEY=", saved)
+                self.assertIn("abcd1234efgh5678", saved)
+
+                status = app.test_client().get("/api/ai/env").get_json()
+                self.assertTrue(status["providers"]["gemini"]["present"])
+                self.assertEqual(status["providers"]["gemini"]["masked"], "abcd********5678")
+
     def test_web_apps_are_separate_pages(self) -> None:
         state = SharedState()
         state.update(

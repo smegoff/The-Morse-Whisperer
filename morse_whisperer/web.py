@@ -4,8 +4,10 @@ import json
 import math
 import os
 import random
+import shlex
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 import wave
@@ -20,6 +22,63 @@ from .cq import install_cq_routes
 
 from .config import DEFAULTS, save_config
 from .dsp import analyse_samples
+
+AI_PROVIDER_ENV_KEYS = {
+    "gemini": "GEMINI_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "openai": "OPENAI_API_KEY",
+}
+AI_ENV_PATH = Path(os.environ.get("MW_AI_ENV_PATH", "/etc/morse-whisperer/ai.env"))
+
+
+def _mask_secret(value: str) -> str:
+    value = str(value or "")
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "*" * len(value)
+    return value[:4] + "*" * max(4, len(value) - 8) + value[-4:]
+
+
+def _read_env_file(path: Path | None = None) -> Dict[str, str]:
+    path = path or AI_ENV_PATH
+    values: Dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        try:
+            parts = shlex.split(value, comments=False, posix=True)
+            value = parts[0] if parts else ""
+        except ValueError:
+            value = value.strip().strip('"').strip("'")
+        values[key] = value
+    return values
+
+
+def _write_env_file(values: Dict[str, str], path: Path | None = None) -> None:
+    path = path or AI_ENV_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "# The Morse Whisperer optional cloud AI keys.",
+        "# Managed by the web UI; keep this file private.",
+    ]
+    for key in sorted(values):
+        value = str(values[key] or "")
+        if value:
+            lines.append(f"{key}={shlex.quote(value)}")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o660)
+    except OSError:
+        pass
+    tmp.replace(path)
 
 HTML = r"""
 <!doctype html>
@@ -1592,6 +1651,12 @@ input:focus,select:focus,textarea:focus{
           </div>
 
           <div class="setting">
+            <label for="setAiApiKey">Provider API key</label>
+            <input id="setAiApiKey" type="password" placeholder="Paste key to update">
+            <div class="hint" id="setAiKeyStatus">Stored keys are masked and loaded after service restart.</div>
+          </div>
+
+          <div class="setting">
             <label for="setAiRealtimeAssist">Auto notes</label>
             <select id="setAiRealtimeAssist">
               <option value="false">Disabled</option>
@@ -1603,6 +1668,7 @@ input:focus,select:focus,textarea:focus{
 
         <div class="controls" style="margin-top:14px">
           <button class="primary" onclick="saveSettings()">Save settings</button>
+          <button onclick="saveAiApiKey()">Save API key & restart</button>
           <button onclick="resetDefaults()">Reset to defaults</button>
         </div>
       </div>
@@ -2364,6 +2430,7 @@ async function loadSettings(){
     if ($('setAiProvider')) $('setAiProvider').value=cfg.ai_provider||'local';
     if ($('setAiModel')) $('setAiModel').value=cfg.ai_model||'gemini-2.5-flash-lite';
     if ($('setAiRealtimeAssist')) $('setAiRealtimeAssist').value=String(cfg.ai_realtime_assist===true);
+    await loadAiEnvStatus();
     updateFilterToggleButton(cfg);
     $('cwTone').value=cfg.cw_generator_tone_hz || cfg.target_tone_hz || 700;
     $('cwWpm').value=cfg.cw_generator_wpm || cfg.initial_wpm || 18.75;
@@ -2389,6 +2456,8 @@ $('cwWpm')?.addEventListener('input',updateCwPreview);
 $('cwFarnsworth')?.addEventListener('input',updateCwPreview);
 $('cwKeyProfile')?.addEventListener('change',updateCwPreview);
 $('cwAdvancedToggle')?.addEventListener('change',toggleTrainerAdvanced);
+$('setAiProvider')?.addEventListener('change',loadAiEnvStatus);
+$('cqAiProvider')?.addEventListener('change',loadAiEnvStatus);
 
 async function saveSettings(){
   const payload={
@@ -2657,6 +2726,43 @@ async function scanWifi(){
   }
 }
 
+async function loadAiEnvStatus(){
+  try{
+    const r=await fetch('/api/ai/env?ts='+Date.now(),{cache:'no-store'});
+    const s=await r.json();
+    const provider=$('setAiProvider') ? $('setAiProvider').value : 'gemini';
+    const info=(s.providers||{})[provider]||{};
+    if($('setAiKeyStatus')) $('setAiKeyStatus').textContent=info.present ? ('Stored '+info.env_key+': '+info.masked) : ('No stored key for '+(info.env_key||provider)+'.');
+    if($('cqAiKeyStatus')) $('cqAiKeyStatus').textContent=info.present ? ('Stored '+info.env_key+': '+info.masked) : ('No stored key for '+(info.env_key||provider)+'.');
+  }catch(e){
+    if($('setAiKeyStatus')) $('setAiKeyStatus').textContent='API key status unavailable: '+e;
+    if($('cqAiKeyStatus')) $('cqAiKeyStatus').textContent='API key status unavailable: '+e;
+  }
+}
+
+async function saveAiApiKey(providerOverride, inputIdOverride){
+  const provider=providerOverride || ($('setAiProvider') ? $('setAiProvider').value : 'gemini');
+  const inputId=inputIdOverride || 'setAiApiKey';
+  const key=$(inputId)?.value||'';
+  if(!key.trim()){
+    if($('settingsMsg')) $('settingsMsg').textContent='Paste an API key first.';
+    if($('cqMsg')) $('cqMsg').textContent='Paste an API key first.';
+    return;
+  }
+  try{
+    const r=await fetch('/api/ai/env',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:provider, api_key:key, restart:true})});
+    const s=await r.json();
+    if(!s.ok) throw new Error(s.error||'save failed');
+    if($(inputId)) $(inputId).value='';
+    if($('settingsMsg')) $('settingsMsg').textContent='API key saved for '+provider+'. Service restart requested.';
+    if($('cqMsg')) $('cqMsg').textContent='API key saved for '+provider+'. Service restart requested.';
+    await loadAiEnvStatus();
+  }catch(e){
+    if($('settingsMsg')) $('settingsMsg').textContent='API key save failed: '+e;
+    if($('cqMsg')) $('cqMsg').textContent='API key save failed: '+e;
+  }
+}
+
 function renderCqStatus(s){
   const cfg=s.config||{}, channel=s.channel||{}, radio=s.radio||{};
   if($('cqEnabled')) $('cqEnabled').value=String(cfg.cq_enabled===true);
@@ -2669,6 +2775,7 @@ function renderCqStatus(s){
   if($('cqBusyRms')) $('cqBusyRms').value=cfg.cq_busy_rms_threshold ?? 0.006;
   if($('cqAiProvider')) $('cqAiProvider').value=(cfg.cq_ai_provider||'gemini');
   if($('cqAiModel')) $('cqAiModel').value=(cfg.cq_ai_model||'gemini-2.5-flash-lite');
+  loadAiEnvStatus();
 
   const state=channel.state||'unknown';
   if($('cqStateBadge')){
@@ -3034,9 +3141,11 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
         <div class="setting"><label for="cqBusyRms">Busy RMS threshold</label><input id="cqBusyRms" type="number" min="0.0001" max="0.2" step="0.0005"><div class="hint">Audio above this may mean occupied.</div></div>
         <div class="setting"><label for="cqAiProvider">CQ AI engine</label><select id="cqAiProvider"><option value="gemini">Gemini free tier</option><option value="local">Local fallback</option><option value="groq">Groq</option><option value="openrouter">OpenRouter free router</option><option value="openai">OpenAI / ChatGPT</option></select><div class="hint">Cloud providers use API keys from /etc/morse-whisperer/ai.env.</div></div>
         <div class="setting"><label for="cqAiModel">CQ AI model</label><input id="cqAiModel" type="text" placeholder="gemini-2.5-flash-lite"><div class="hint">Used for CQ planning and reply drafts.</div></div>
+        <div class="setting"><label for="cqAiApiKey">Provider API key</label><input id="cqAiApiKey" type="password" placeholder="Paste key to update"><div class="hint" id="cqAiKeyStatus">Stored keys are masked and loaded after service restart.</div></div>
       </div>
       <div class="controls" style="margin-top:14px">
         <button class="primary" onclick="saveCqSettings()">Save CQ settings</button>
+        <button onclick="saveAiApiKey($('cqAiProvider').value,'cqAiApiKey')">Save API key & restart</button>
         <button onclick="loadCqStatus()">Refresh status</button>
         <button onclick="planCqReply()">Analyse current audio</button>
       </div>
@@ -3080,6 +3189,7 @@ function renderCqStatus(s){
   $('cqBusyRms').value=cfg.cq_busy_rms_threshold ?? 0.006;
   $('cqAiProvider').value=cfg.cq_ai_provider||'gemini';
   $('cqAiModel').value=cfg.cq_ai_model||'gemini-2.5-flash-lite';
+  loadAiEnvStatus();
   const state=channel.state||'unknown';
   $('cqStateBadge').textContent=(s.phase||'listen only').replaceAll('_',' ');
   $('cqStateBadge').className='badge '+(state==='clear'?'good':state==='busy'?'warn':'');
@@ -4111,6 +4221,78 @@ def create_app(state, ring, config: Dict) -> Flask:
         state.update(config=config)
         state.append_status("Settings reset to safe defaults")
         return jsonify({"ok": True, "config": config})
+
+    @app.route("/api/ai/env", methods=["GET", "POST"])
+    def ai_env_settings():
+        if request.method == "GET":
+            values = _read_env_file()
+            providers = {}
+            for provider, env_key in AI_PROVIDER_ENV_KEYS.items():
+                value = values.get(env_key, "")
+                providers[provider] = {
+                    "env_key": env_key,
+                    "present": bool(value),
+                    "masked": _mask_secret(value),
+                }
+            return jsonify({
+                "ok": True,
+                "path": str(AI_ENV_PATH),
+                "providers": providers,
+            })
+
+        data = request.get_json(silent=True) or {}
+        provider = str(data.get("provider") or "").strip().lower()
+        api_key = str(data.get("api_key") or "").strip()
+        restart = bool(data.get("restart", False))
+
+        if provider not in AI_PROVIDER_ENV_KEYS:
+            return jsonify({"ok": False, "error": "provider must be gemini, groq, openrouter, or openai"}), 400
+        if not api_key:
+            return jsonify({"ok": False, "error": "api_key is required"}), 400
+        if any(ord(ch) < 32 or ch in "\r\n" for ch in api_key):
+            return jsonify({"ok": False, "error": "api_key contains unsupported control characters"}), 400
+        if len(api_key) > 4096:
+            return jsonify({"ok": False, "error": "api_key is too long"}), 400
+
+        try:
+            values = _read_env_file()
+            values[AI_PROVIDER_ENV_KEYS[provider]] = api_key
+            _write_env_file(values)
+        except PermissionError as exc:
+            return jsonify({
+                "ok": False,
+                "error": f"Cannot write {AI_ENV_PATH}. Run the installer/update permissions first.",
+                "detail": str(exc),
+            }), 500
+        except OSError as exc:
+            return jsonify({"ok": False, "error": f"Cannot write {AI_ENV_PATH}: {exc}"}), 500
+
+        result = {
+            "ok": True,
+            "provider": provider,
+            "env_key": AI_PROVIDER_ENV_KEYS[provider],
+            "masked": _mask_secret(api_key),
+            "restart_requested": restart,
+            "path": str(AI_ENV_PATH),
+        }
+        state.append_status(f"AI API key updated for {provider}")
+
+        if restart:
+            restart_helper = Path("/opt/morse-whisperer-pi/tools/restart_after_profile_switch.py")
+            if restart_helper.exists():
+                subprocess.Popen(
+                    [sys.executable, str(restart_helper)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                result["message"] = "API key saved. Service restart requested."
+            else:
+                result["message"] = "API key saved. Restart the service to load it."
+        else:
+            result["message"] = "API key saved. Restart the service to load it."
+
+        return jsonify(result)
 
     @app.route("/api/cw/play", methods=["POST"])
     def cw_play():

@@ -21,6 +21,8 @@ Morse Whisperer tabs:
 - **Settings**: decoder tone mode, target tone, WPM hint, input level, TFT brightness, idle splash, output device.
 - **CW Generator / Trainer**: enter text, set tone/WPM/volume, and play CW through the USB output.
 - **Network Setup**: view IP status, scan Wi-Fi, connect to a network.
+- **AI provider keys**: paste Gemini, Groq, OpenRouter, or OpenAI API keys.
+  Stored keys are masked in the UI and written to `/etc/morse-whisperer/ai.env`.
 
 The Morse Whisperer app shows stable COPY, RAW, tone lock, signal quality, and operator controls.
 
