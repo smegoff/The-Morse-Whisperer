@@ -1355,6 +1355,10 @@ input:focus,select:focus,textarea:focus{
         <div class="sub">CW decoder appliance - Raspberry Pi live receiver</div>
       </div>
     </div>
+    <div class="controls">
+      <a class="btn primary" href="/">Morse Whisperer</a>
+      <a class="btn" href="/cq">CQ Rag Chew</a>
+    </div>
     <div class="statusPills">
       <div class="pill"><span id="modeDot" class="dot"></span><b id="mode">loading</b></div>
       <div class="pill">Updated <b id="age">--</b></div>
@@ -1464,106 +1468,6 @@ input:focus,select:focus,textarea:focus{
           <pre class="log" id="aiWarnings" style="margin-top:10px">Reply helper ready.</pre>
         </div>
       </section>
-
-  <section class="card" style="margin-top:16px" id="cqRagChewCard">
-    <div class="cardHead">
-      <h3>CQ Rag Chew</h3>
-      <span id="cqStateBadge" class="badge">listen only</span>
-    </div>
-    <div class="cardBody">
-      <div class="small" style="margin-bottom:10px">
-        Early foundation for assisted CQ/rag-chew operation. This milestone listens, checks CAT status, and judges whether the frequency looks busy. Transmit is deliberately disabled.
-      </div>
-
-      <div class="settingsGrid">
-        <div class="setting">
-          <label for="cqEnabled">CQ app</label>
-          <select id="cqEnabled">
-            <option value="false">Standby</option>
-            <option value="true">Enabled - listen only</option>
-          </select>
-          <div class="hint">Enables CQ Rag Chew status logic. It does not enable transmit.</div>
-        </div>
-
-        <div class="setting">
-          <label for="cqCallsign">Station callsign</label>
-          <input id="cqCallsign" type="text" placeholder="ZL1SXG">
-          <div class="hint">Used for future CQ drafts and logging. Must be a legitimate operator callsign.</div>
-        </div>
-
-        <div class="setting">
-          <label for="cqCatEnabled">CAT status</label>
-          <select id="cqCatEnabled">
-            <option value="false">Disabled</option>
-            <option value="true">Read via rigctl</option>
-          </select>
-          <div class="hint">Read-only radio status for now. Xiegu G90 typically uses 19200 baud.</div>
-        </div>
-
-        <div class="setting">
-          <label for="cqCatDevice">CAT device</label>
-          <input id="cqCatDevice" type="text" placeholder="/dev/ttyUSB0">
-          <div class="hint">Serial device for rigctl/Hamlib.</div>
-        </div>
-
-        <div class="setting">
-          <label for="cqCatModel">Hamlib model</label>
-          <input id="cqCatModel" type="text" placeholder="3073">
-          <div class="hint">Hamlib rig model number. Keep as-is until bench-tested with the radio.</div>
-        </div>
-
-        <div class="setting">
-          <label for="cqCatBaud">CAT baud</label>
-          <input id="cqCatBaud" type="number" min="1200" max="115200" step="1200">
-          <div class="hint">Default 19200 for the G90 CAT path.</div>
-        </div>
-
-        <div class="setting">
-          <label for="cqBands">Band allowlist</label>
-          <input id="cqBands" type="text" placeholder="40m,20m,15m,10m">
-          <div class="hint">Planning guardrail for later frequency changes.</div>
-        </div>
-
-        <div class="setting">
-          <label for="cqBusyRms">Busy RMS threshold</label>
-          <input id="cqBusyRms" type="number" min="0.0001" max="0.2" step="0.0005">
-          <div class="hint">Audio level above this counts as possibly occupied.</div>
-        </div>
-
-        <div class="setting">
-          <label for="cqAiProvider">CQ AI engine</label>
-          <select id="cqAiProvider">
-            <option value="openai">OpenAI / ChatGPT</option>
-            <option value="local">Local fallback</option>
-          </select>
-          <div class="hint">OpenAI uses /etc/morse-whisperer/ai.env. Output is suggestion-only.</div>
-        </div>
-
-        <div class="setting">
-          <label for="cqAiModel">CQ AI model</label>
-          <input id="cqAiModel" type="text" placeholder="gpt-4.1-mini">
-          <div class="hint">Used for CQ planning and reply drafts.</div>
-        </div>
-      </div>
-
-      <div class="controls" style="margin-top:14px">
-        <button class="primary" onclick="saveCqSettings()">Save CQ settings</button>
-        <button onclick="loadCqStatus()">Refresh CQ status</button>
-        <button onclick="planCqReply()">Plan next reply</button>
-      </div>
-
-      <div class="kv" style="margin-top:12px">
-        <div>Channel</div><div id="cqChannel">--</div>
-        <div>Reason</div><div id="cqReason">--</div>
-        <div>Radio</div><div id="cqRadio">--</div>
-        <div>CAT</div><div id="cqCat">--</div>
-        <div>AI</div><div id="cqAi">--</div>
-        <div>TX</div><div id="cqTx">disabled</div>
-      </div>
-      <pre class="log" id="cqPlan" style="margin-top:10px">No CQ plan yet.</pre>
-      <div class="small" id="cqMsg" style="margin-top:10px">CQ Rag Chew is ready for listen-only setup.</div>
-    </div>
-  </section>
 
   <section class="card" style="margin-top:16px">
     <div class="cardHead">
@@ -2901,9 +2805,6 @@ async function tick(){
     $('buffer').textContent=`${num(a.buffered_seconds,1)}s - trims ${a.overruns||0}`;
 
     updateToneRanking(q.tone_ranking);
-    if(window.__cqTickCounter===undefined) window.__cqTickCounter=0;
-    window.__cqTickCounter += 1;
-    if(window.__cqTickCounter % 4 === 0) loadCqStatus();
 
     const cand=(d.candidate_copy || d.candidate_raw || '').trim();
     $('candidate').textContent=cand || 'No rejected candidate shown.';
@@ -2921,7 +2822,6 @@ async function tick(){
 setInterval(tick,800);
 tick();
 loadSettings();
-loadCqStatus();
 </script>
 
 
@@ -3067,6 +2967,173 @@ loadCqStatus();
 </html>
 """
 
+CQ_HTML = r"""
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="cache-control" content="no-store">
+<title>CQ Rag Chew</title>
+<style>
+:root{--bg:#061018;--panel:rgba(12,27,39,.78);--line:rgba(126,238,255,.22);--text:#e9fbff;--muted:#8eb4c2;--cyan:#66eaff;--green:#70ffac;--gold:#ffd36e;--red:#ff6b7d}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at top left,rgba(102,234,255,.16),transparent 34%),linear-gradient(140deg,#061018,#0b1421 55%,#130d1a);color:var(--text);font-family:Inter,Segoe UI,Roboto,Arial,sans-serif}
+.app{max-width:1180px;margin:0 auto;padding:22px}
+.topbar,.card{border:1px solid var(--line);background:var(--panel);box-shadow:0 0 36px rgba(102,234,255,.10);backdrop-filter:blur(18px) saturate(1.3);border-radius:24px}
+.topbar{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:16px 18px;margin-bottom:16px}
+.brand{display:flex;gap:12px;align-items:center}.logo{width:46px;height:46px;border-radius:15px;background:linear-gradient(135deg,var(--cyan),var(--gold));display:grid;place-items:center;color:#031018;font-weight:900}
+h1,h2,h3{margin:0}.sub,.small,.hint{color:var(--muted)}.controls{display:flex;gap:10px;flex-wrap:wrap}
+button,.btn,input,select,textarea{border-radius:14px;border:1px solid rgba(126,238,255,.25);background:rgba(255,255,255,.06);color:var(--text);padding:10px 12px;text-decoration:none}
+button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,234,255,.28),rgba(112,255,172,.20));border-color:rgba(102,234,255,.55)}
+.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}.card{padding:16px}.cardHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.settingsGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.setting{display:grid;gap:7px;padding:12px;border:1px solid rgba(126,238,255,.16);border-radius:18px;background:rgba(0,0,0,.14)}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:8px 12px}.kv>div:nth-child(odd){color:var(--muted)}
+.badge{display:inline-flex;align-items:center;border-radius:999px;padding:5px 9px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);font-size:12px}.good{color:var(--green);border-color:rgba(112,255,172,.45)}.warn{color:var(--gold);border-color:rgba(255,211,110,.45)}.bad{color:var(--red);border-color:rgba(255,107,125,.45)}
+.log{white-space:pre-wrap;min-height:150px;line-height:1.45;background:rgba(0,0,0,.22);border:1px solid rgba(126,238,255,.16);border-radius:16px;padding:12px;color:#d7f8ff}
+@media(max-width:880px){.grid,.settingsGrid{grid-template-columns:1fr}.topbar{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo">CQ</div>
+      <div>
+        <h1>CQ Rag Chew</h1>
+        <div class="sub">Listen-only assisted operating foundation</div>
+      </div>
+    </div>
+    <div class="controls">
+      <a class="btn" href="/">Morse Whisperer</a>
+      <a class="btn primary" href="/cq">CQ Rag Chew</a>
+    </div>
+  </div>
+
+  <div class="grid">
+    <section class="card">
+      <div class="cardHead">
+        <h2>Operating Setup</h2>
+        <span id="cqStateBadge" class="badge">listen only</span>
+      </div>
+      <div class="small" style="margin-bottom:12px">
+        This app can listen, read CAT status, judge whether the frequency looks busy, and ask OpenAI for draft planning. It cannot transmit, key PTT, or change frequency yet.
+      </div>
+      <div class="settingsGrid">
+        <div class="setting"><label for="cqEnabled">CQ app</label><select id="cqEnabled"><option value="false">Standby</option><option value="true">Enabled - listen only</option></select><div class="hint">Enables CQ status logic only.</div></div>
+        <div class="setting"><label for="cqCallsign">Station callsign</label><input id="cqCallsign" type="text" placeholder="ZL1SXG"><div class="hint">Used for drafts and future logging.</div></div>
+        <div class="setting"><label for="cqCatEnabled">CAT status</label><select id="cqCatEnabled"><option value="false">Disabled</option><option value="true">Read via rigctl</option></select><div class="hint">Read-only radio status for now.</div></div>
+        <div class="setting"><label for="cqCatDevice">CAT device</label><input id="cqCatDevice" type="text" placeholder="/dev/ttyUSB0"><div class="hint">Serial device for Hamlib.</div></div>
+        <div class="setting"><label for="cqCatModel">Hamlib model</label><input id="cqCatModel" type="text" placeholder="3073"><div class="hint">Bench-test this with the radio.</div></div>
+        <div class="setting"><label for="cqCatBaud">CAT baud</label><input id="cqCatBaud" type="number" min="1200" max="115200" step="1200"><div class="hint">G90 default path is usually 19200.</div></div>
+        <div class="setting"><label for="cqBands">Band allowlist</label><input id="cqBands" type="text" placeholder="40m,20m,15m,10m"><div class="hint">Planning guardrail for later frequency changes.</div></div>
+        <div class="setting"><label for="cqBusyRms">Busy RMS threshold</label><input id="cqBusyRms" type="number" min="0.0001" max="0.2" step="0.0005"><div class="hint">Audio above this may mean occupied.</div></div>
+        <div class="setting"><label for="cqAiProvider">CQ AI engine</label><select id="cqAiProvider"><option value="openai">OpenAI / ChatGPT</option><option value="local">Local fallback</option></select><div class="hint">OpenAI uses /etc/morse-whisperer/ai.env.</div></div>
+        <div class="setting"><label for="cqAiModel">CQ AI model</label><input id="cqAiModel" type="text" placeholder="gpt-4.1-mini"><div class="hint">Used for CQ planning and reply drafts.</div></div>
+      </div>
+      <div class="controls" style="margin-top:14px">
+        <button class="primary" onclick="saveCqSettings()">Save CQ settings</button>
+        <button onclick="loadCqStatus()">Refresh status</button>
+        <button onclick="planCqReply()">Plan next reply</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="cardHead"><h2>Live Status</h2><span class="badge">advisory</span></div>
+      <div class="kv">
+        <div>Channel</div><div id="cqChannel">--</div>
+        <div>Reason</div><div id="cqReason">--</div>
+        <div>Radio</div><div id="cqRadio">--</div>
+        <div>CAT</div><div id="cqCat">--</div>
+        <div>AI</div><div id="cqAi">--</div>
+        <div>TX</div><div id="cqTx">disabled</div>
+      </div>
+      <pre class="log" id="cqPlan" style="margin-top:12px">No CQ plan yet.</pre>
+      <div class="small" id="cqMsg" style="margin-top:10px">CQ Rag Chew is ready.</div>
+    </section>
+  </div>
+</div>
+<script>
+function $(id){return document.getElementById(id)}
+function renderCqStatus(s){
+  const cfg=s.config||{}, channel=s.channel||{}, radio=s.radio||{};
+  $('cqEnabled').value=String(cfg.cq_enabled===true);
+  $('cqCallsign').value=cfg.cq_callsign||'';
+  $('cqCatEnabled').value=String(cfg.cq_cat_enabled===true);
+  $('cqCatDevice').value=cfg.cq_cat_device||'/dev/ttyUSB0';
+  $('cqCatModel').value=cfg.cq_cat_model||'3073';
+  $('cqCatBaud').value=cfg.cq_cat_baud||19200;
+  $('cqBands').value=cfg.cq_band_allowlist||'40m,20m,15m,10m';
+  $('cqBusyRms').value=cfg.cq_busy_rms_threshold ?? 0.006;
+  $('cqAiProvider').value=cfg.cq_ai_provider||'openai';
+  $('cqAiModel').value=cfg.cq_ai_model||'gpt-4.1-mini';
+  const state=channel.state||'unknown';
+  $('cqStateBadge').textContent=(s.phase||'listen only').replaceAll('_',' ');
+  $('cqStateBadge').className='badge '+(state==='clear'?'good':state==='busy'?'warn':'');
+  $('cqChannel').innerHTML='<span class="badge '+(state==='clear'?'good':state==='busy'?'warn':'')+'">'+state.toUpperCase()+'</span>';
+  $('cqReason').textContent=channel.reason||'--';
+  const freq=radio.frequency_hz ? (Number(radio.frequency_hz)/1000000).toFixed(5)+' MHz' : '--';
+  $('cqRadio').textContent=freq+' '+(radio.mode||'');
+  $('cqCat').textContent=radio.available ? 'online via '+(radio.backend||'rigctl') : (radio.error||'disabled');
+  $('cqAi').textContent=((s.ai&&s.ai.provider)||cfg.cq_ai_provider||'openai')+' / '+((s.ai&&s.ai.model)||cfg.cq_ai_model||'gpt-4.1-mini');
+  $('cqTx').textContent=s.transmit_available ? 'available' : 'disabled in this milestone';
+}
+async function loadCqStatus(){
+  try{
+    const r=await fetch('/api/cq/status?ts='+Date.now(),{cache:'no-store'});
+    renderCqStatus(await r.json());
+    $('cqMsg').textContent='CQ status refreshed.';
+  }catch(e){$('cqMsg').textContent='CQ status failed: '+e}
+}
+async function saveCqSettings(){
+  const payload={
+    cq_enabled:$('cqEnabled').value==='true',
+    cq_callsign:$('cqCallsign').value||'N0CALL',
+    cq_cat_enabled:$('cqCatEnabled').value==='true',
+    cq_cat_backend:'rigctl',
+    cq_cat_device:$('cqCatDevice').value||'/dev/ttyUSB0',
+    cq_cat_model:$('cqCatModel').value||'3073',
+    cq_cat_baud:Number($('cqCatBaud').value||19200),
+    cq_band_allowlist:$('cqBands').value||'40m,20m,15m,10m',
+    cq_busy_rms_threshold:Number($('cqBusyRms').value||0.006),
+    cq_ai_enabled:true,
+    cq_ai_provider:$('cqAiProvider').value||'openai',
+    cq_ai_model:$('cqAiModel').value||'gpt-4.1-mini'
+  };
+  const r=await fetch('/api/cq/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const s=await r.json();
+  $('cqMsg').textContent=s.ok ? 'CQ settings saved. Transmit remains disabled.' : ('CQ save failed: '+(s.error||'unknown'));
+  await loadCqStatus();
+}
+async function planCqReply(){
+  $('cqPlan').textContent='Planning from current copy...';
+  try{
+    const r=await fetch('/api/cq/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'auto'})});
+    const s=await r.json();
+    const analysis=s.analysis||{}, reply=s.reply||{}, channel=s.channel||{};
+    const warnings=(s.warnings||[]).concat((reply.warnings||[])).filter(Boolean);
+    const lines=[
+      'Phase: '+(s.phase||'--'),
+      'Channel: '+(channel.state||'unknown')+' - '+(channel.reason||''),
+      'AI provider: '+(analysis.provider||reply.provider||'local')+(analysis.fallback_used||reply.fallback_used?' (fallback used)':''),
+      'Intent: '+(analysis.detected_intent||'--'),
+      'Station: '+(analysis.their_call||'--'),
+      'Draft: '+(reply.suggested_reply_text||'(no draft yet)'),
+      'Meaning: '+(reply.plain_english||analysis.plain_english||'--'),
+      'TX: disabled in this milestone'
+    ];
+    if(warnings.length) lines.push('Warnings: '+warnings.join(' | '));
+    $('cqPlan').textContent=lines.join('\n');
+    $('cqMsg').textContent='CQ plan generated for review only.';
+  }catch(e){$('cqPlan').textContent='CQ plan failed: '+e}
+}
+setInterval(loadCqStatus, 2500);
+loadCqStatus();
+</script>
+</body>
+</html>
+"""
+
 
 def no_cache_response(body: str, mimetype: str) -> Response:
     return Response(
@@ -3088,6 +3155,10 @@ def create_app(state, ring, config: Dict) -> Flask:
     @app.route("/")
     def index():
         return no_cache_response(HTML, "text/html")
+
+    @app.route("/cq")
+    def cq_index():
+        return no_cache_response(CQ_HTML, "text/html")
 
     @app.route("/api/decode/history")
     def decode_history():

@@ -8,7 +8,7 @@ answer CQ, help manage a QSO, and eventually log complete contacts.
 
 The first implementation is listen-only foundation work:
 
-- Web panel on the main Morse Whisperer UI.
+- Standalone web app at `/cq`, with an app switcher back to the decoder.
 - `/api/cq/status` JSON endpoint.
 - `/api/cq/settings` JSON endpoint for CQ app settings.
 - Read-only CAT status probing through Hamlib `rigctl` when enabled.

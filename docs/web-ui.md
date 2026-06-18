@@ -6,15 +6,23 @@ Open the web UI at:
 http://<pi-ip>:8080
 ```
 
-Tabs:
+Apps:
+
+- **Morse Whisperer** at `/`: live CW decoder, copy display, station notes,
+  decoder settings, trainer, and network setup.
+- **CQ Rag Chew** at `/cq`: listen-only assisted operating foundation,
+  including callsign, CAT read-only setup, busy-frequency status, and
+  OpenAI-backed reply planning.
+
+The top of each app has a small app switcher.
+
+Morse Whisperer tabs:
 
 - **Settings**: decoder tone mode, target tone, WPM hint, input level, TFT brightness, idle splash, output device.
 - **CW Generator / Trainer**: enter text, set tone/WPM/volume, and play CW through the USB output.
 - **Network Setup**: view IP status, scan Wi-Fi, connect to a network.
-- **CQ Rag Chew**: listen-only assisted operating foundation, including callsign,
-  CAT read-only setup, busy-frequency status, and OpenAI-backed reply planning.
 
-The top of the page shows stable COPY, RAW, tone lock, signal quality, and operator controls.
+The Morse Whisperer app shows stable COPY, RAW, tone lock, signal quality, and operator controls.
 
 ## Security boundary
 

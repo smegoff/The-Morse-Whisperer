@@ -227,6 +227,31 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertEqual(analyse.call_args.args[1]["ai_provider"], "openai")
         self.assertEqual(analyse.call_args.args[1]["ai_model"], "gpt-4.1-mini")
 
+    def test_web_apps_are_separate_pages(self) -> None:
+        class DummyState:
+            def snapshot(self):
+                return {
+                    "audio": {"level_status": "IDLE", "rms": 0.0},
+                    "quality": {"squelch_open": False, "recent_activity": False},
+                    "decode": {},
+                }
+
+            def update(self, **kwargs):
+                pass
+
+            def append_status(self, message):
+                pass
+
+        app = create_app(DummyState(), None, {"station_callsign": "ZL1SXG"})
+        client = app.test_client()
+        decoder_html = client.get("/").data.decode("utf-8")
+        cq_html = client.get("/cq").data.decode("utf-8")
+
+        self.assertIn('href="/cq"', decoder_html)
+        self.assertNotIn('id="cqRagChewCard"', decoder_html)
+        self.assertIn("CQ Rag Chew", cq_html)
+        self.assertIn("planCqReply", cq_html)
+
 
 class ProfileSwitchTests(unittest.TestCase):
     def test_switch_preserves_non_profile_settings(self) -> None:
