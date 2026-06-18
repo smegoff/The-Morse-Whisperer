@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
@@ -51,6 +52,8 @@ COMMON_ABBREVIATIONS = {
     "TU": "thank_you",
     "73": "best_regards",
 }
+
+_GEMINI_OAUTH_CACHE: Dict[str, Any] = {}
 
 
 class LocalQsoState:
@@ -443,6 +446,8 @@ def _provider_error_summary(provider: str, exc: Exception) -> str:
     text = str(exc)
     lower = text.lower()
     if "http 401" in lower or "unauthenticated" in lower or "invalid authentication credentials" in lower:
+        if provider == "gemini":
+            return "gemini authentication failed; local fallback used. Check or rotate the Gemini API key, or check OAuth credentials."
         return f"{provider} authentication failed; local fallback used. Check or rotate the {provider} API key."
     if "http 429" in lower or "quota" in lower or "rate limit" in lower:
         return f"{provider} provider quota/rate limit hit; local fallback used."
@@ -453,6 +458,87 @@ def _provider_error_summary(provider: str, exc: Exception) -> str:
     if len(first_line) > 180:
         first_line = first_line[:177] + "..."
     return f"{provider} provider failed; local fallback used: {first_line}"
+
+
+def _gemini_oauth_value(name: str) -> str:
+    return os.environ.get(name, "").strip()
+
+
+def _gemini_oauth_configured() -> bool:
+    return bool(
+        _gemini_oauth_value("GEMINI_OAUTH_CLIENT_ID")
+        and _gemini_oauth_value("GEMINI_OAUTH_CLIENT_SECRET")
+        and _gemini_oauth_value("GEMINI_OAUTH_REFRESH_TOKEN")
+    )
+
+
+def _gemini_access_token(timeout: float) -> str:
+    client_id = _gemini_oauth_value("GEMINI_OAUTH_CLIENT_ID")
+    client_secret = _gemini_oauth_value("GEMINI_OAUTH_CLIENT_SECRET")
+    refresh_token = _gemini_oauth_value("GEMINI_OAUTH_REFRESH_TOKEN")
+    token_uri = _gemini_oauth_value("GEMINI_OAUTH_TOKEN_URI") or "https://oauth2.googleapis.com/token"
+
+    if not (client_id and client_secret and refresh_token):
+        raise RuntimeError("Gemini OAuth is incomplete; set client id, client secret, and refresh token")
+
+    cache_key = f"{client_id}:{refresh_token[-12:]}"
+    cached = _GEMINI_OAUTH_CACHE.get(cache_key) or {}
+    now = time.time()
+    if cached.get("access_token") and float(cached.get("expires_at") or 0) > now + 60:
+        return str(cached["access_token"])
+
+    data = urllib.parse.urlencode(
+        {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        token_uri,
+        data=data,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        raise RuntimeError(f"gemini OAuth token HTTP {e.code}: {detail[:600]}") from e
+
+    access_token = str(payload.get("access_token") or "").strip()
+    if not access_token:
+        raise RuntimeError("gemini OAuth token response did not include access_token")
+
+    expires_in = int(payload.get("expires_in") or 3600)
+    _GEMINI_OAUTH_CACHE[cache_key] = {
+        "access_token": access_token,
+        "expires_at": now + max(60, expires_in),
+    }
+    return access_token
+
+
+def _gemini_headers(config: Dict[str, Any], timeout: float) -> Dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    project_id = _gemini_oauth_value("GEMINI_PROJECT_ID") or _gemini_oauth_value("GOOGLE_CLOUD_PROJECT")
+
+    if _gemini_oauth_configured():
+        headers["Authorization"] = f"Bearer {_gemini_access_token(timeout)}"
+        if project_id:
+            headers["x-goog-user-project"] = project_id
+        return headers
+
+    api_key_env = _env_key(config, "gemini")
+    api_key = os.environ.get(api_key_env, "").strip()
+    if not api_key:
+        raise RuntimeError(
+            f"{api_key_env} is not set in systemd environment and Gemini OAuth credentials are not configured"
+        )
+    headers["x-goog-api-key"] = api_key
+    return headers
 
 
 def _openai_request(config: Dict[str, Any], messages: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -541,12 +627,6 @@ def _chat_request(
 
 
 def _gemini_request(config: Dict[str, Any], messages: List[Dict[str, str]]) -> Dict[str, Any]:
-    api_key_env = _env_key(config, "gemini")
-    api_key = os.environ.get(api_key_env, "").strip()
-
-    if not api_key:
-        raise RuntimeError(f"{api_key_env} is not set in systemd environment")
-
     model = str(config.get("ai_model") or "gemini-2.5-flash-lite")
     timeout = float(config.get("ai_timeout_sec", 20) or 20)
     system_text = "\n".join(m["content"] for m in messages if m.get("role") == "system")
@@ -565,10 +645,7 @@ def _gemini_request(config: Dict[str, Any], messages: List[Dict[str, str]]) -> D
     req = urllib.request.Request(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
         data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": api_key,
-        },
+        headers=_gemini_headers(config, timeout),
         method="POST",
     )
 
@@ -609,11 +686,6 @@ def _provider_request(config: Dict[str, Any], messages: List[Dict[str, str]]) ->
 
 
 def transcribe_audio_gemini(wav_bytes: bytes, config: Dict[str, Any], sample_rate: int, duration_sec: float) -> Dict[str, Any]:
-    api_key_env = _env_key(config, "gemini")
-    api_key = os.environ.get(api_key_env, "").strip()
-
-    if not api_key:
-        raise RuntimeError(f"{api_key_env} is not set in systemd environment")
     if not wav_bytes:
         raise RuntimeError("No audio bytes supplied")
 
@@ -658,10 +730,7 @@ def transcribe_audio_gemini(wav_bytes: bytes, config: Dict[str, Any], sample_rat
     req = urllib.request.Request(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
         data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": api_key,
-        },
+        headers=_gemini_headers(config, timeout),
         method="POST",
     )
 

@@ -30,6 +30,12 @@ AI_PROVIDER_ENV_KEYS = {
     "openrouter": "OPENROUTER_API_KEY",
     "openai": "OPENAI_API_KEY",
 }
+GEMINI_OAUTH_ENV_KEYS = {
+    "project_id": "GEMINI_PROJECT_ID",
+    "client_id": "GEMINI_OAUTH_CLIENT_ID",
+    "client_secret": "GEMINI_OAUTH_CLIENT_SECRET",
+    "refresh_token": "GEMINI_OAUTH_REFRESH_TOKEN",
+}
 AI_ENV_PATH = Path(os.environ.get("MW_AI_ENV_PATH", "/etc/morse-whisperer/ai.env"))
 
 
@@ -3174,10 +3180,15 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
         <div class="setting"><label for="cqAiProvider">CQ AI engine</label><select id="cqAiProvider"><option value="gemini">Gemini free tier</option><option value="local">Local fallback</option><option value="groq">Groq</option><option value="openrouter">OpenRouter free router</option><option value="openai">OpenAI / ChatGPT</option></select><div class="hint">Cloud providers use API keys from /etc/morse-whisperer/ai.env.</div></div>
         <div class="setting"><label for="cqAiModel">CQ AI model</label><input id="cqAiModel" type="text" placeholder="gemini-2.5-flash-lite"><div class="hint">Used for CQ planning and reply drafts.</div></div>
         <div class="setting"><label for="cqAiApiKey">Provider API key</label><input id="cqAiApiKey" type="password" placeholder="Paste key to update"><div class="hint" id="cqAiKeyStatus">Stored keys are masked and loaded after service restart.</div></div>
+        <div class="setting"><label for="geminiProjectId">Gemini project ID/number</label><input id="geminiProjectId" type="text" placeholder="721358093430"><div class="hint">Used as x-goog-user-project for OAuth.</div></div>
+        <div class="setting"><label for="geminiClientId">Gemini OAuth client ID</label><input id="geminiClientId" type="password" placeholder="Desktop OAuth client ID"><div class="hint">From Google Auth platform.</div></div>
+        <div class="setting"><label for="geminiClientSecret">Gemini OAuth client secret</label><input id="geminiClientSecret" type="password" placeholder="OAuth client secret"><div class="hint">Stored server-side only.</div></div>
+        <div class="setting"><label for="geminiRefreshToken">Gemini OAuth refresh token</label><input id="geminiRefreshToken" type="password" placeholder="Paste refresh token"><div class="hint" id="geminiOauthStatus">OAuth needs a refresh token as well as the client details.</div></div>
       </div>
       <div class="controls" style="margin-top:14px">
         <button class="primary" onclick="saveCqSettings()">Save CQ settings</button>
         <button onclick="saveAiApiKey($('cqAiProvider').value,'cqAiApiKey')">Save API key & restart</button>
+        <button onclick="saveGeminiOAuth()">Save Gemini OAuth & restart</button>
         <button onclick="loadCqStatus()">Refresh status</button>
         <button onclick="planCqReply()">Analyse current audio</button>
         <button onclick="transcribeVoice()">Transcribe voice</button>
@@ -3234,8 +3245,13 @@ async function loadAiEnvStatus(){
     const provider=$('cqAiProvider') ? $('cqAiProvider').value : 'gemini';
     const info=(s.providers||{})[provider]||{};
     if($('cqAiKeyStatus')) $('cqAiKeyStatus').textContent=info.present ? ('Stored '+info.env_key+': '+info.masked) : ('No stored key for '+(info.env_key||provider)+'.');
+    const oauth=s.gemini_oauth||{};
+    const needed=['project_id','client_id','client_secret','refresh_token'];
+    const present=needed.filter(k => oauth[k]&&oauth[k].present);
+    if($('geminiOauthStatus')) $('geminiOauthStatus').textContent=present.length===needed.length ? 'Gemini OAuth stored: '+present.length+'/'+needed.length+' fields present.' : 'Gemini OAuth incomplete: '+present.length+'/'+needed.length+' fields present.';
   }catch(e){
     if($('cqAiKeyStatus')) $('cqAiKeyStatus').textContent='API key status unavailable: '+e;
+    if($('geminiOauthStatus')) $('geminiOauthStatus').textContent='OAuth status unavailable: '+e;
   }
 }
 async function saveAiApiKey(providerOverride, inputIdOverride){
@@ -3255,6 +3271,31 @@ async function saveAiApiKey(providerOverride, inputIdOverride){
     await loadAiEnvStatus();
   }catch(e){
     if($('cqMsg')) $('cqMsg').textContent='API key save failed: '+e;
+  }
+}
+async function saveGeminiOAuth(){
+  const payload={
+    provider:'gemini',
+    auth_type:'oauth',
+    project_id:$('geminiProjectId')?.value||'',
+    client_id:$('geminiClientId')?.value||'',
+    client_secret:$('geminiClientSecret')?.value||'',
+    refresh_token:$('geminiRefreshToken')?.value||'',
+    restart:true
+  };
+  if(!payload.project_id.trim()||!payload.client_id.trim()||!payload.client_secret.trim()||!payload.refresh_token.trim()){
+    if($('cqMsg')) $('cqMsg').textContent='Paste Gemini project ID, OAuth client ID, client secret, and refresh token first.';
+    return;
+  }
+  try{
+    const r=await fetch('/api/ai/env',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const s=await r.json();
+    if(!s.ok) throw new Error(s.error||'save failed');
+    for(const id of ['geminiClientId','geminiClientSecret','geminiRefreshToken']) if($(id)) $(id).value='';
+    if($('cqMsg')) $('cqMsg').textContent='Gemini OAuth saved. Service restart requested.';
+    await loadAiEnvStatus();
+  }catch(e){
+    if($('cqMsg')) $('cqMsg').textContent='Gemini OAuth save failed: '+e;
   }
 }
 function renderCqStatus(s){
@@ -4414,29 +4455,61 @@ def create_app(state, ring, config: Dict) -> Flask:
                     "present": bool(value),
                     "masked": _mask_secret(value),
                 }
+            gemini_oauth = {}
+            for field, env_key in GEMINI_OAUTH_ENV_KEYS.items():
+                value = values.get(env_key, "")
+                gemini_oauth[field] = {
+                    "env_key": env_key,
+                    "present": bool(value),
+                    "masked": _mask_secret(value),
+                }
             return jsonify({
                 "ok": True,
                 "path": str(AI_ENV_PATH),
                 "providers": providers,
+                "gemini_oauth": gemini_oauth,
             })
 
         data = request.get_json(silent=True) or {}
         provider = str(data.get("provider") or "").strip().lower()
+        auth_type = str(data.get("auth_type") or "api_key").strip().lower()
         api_key = str(data.get("api_key") or "").strip()
         restart = bool(data.get("restart", False))
 
         if provider not in AI_PROVIDER_ENV_KEYS:
             return jsonify({"ok": False, "error": "provider must be gemini, groq, openrouter, or openai"}), 400
-        if not api_key:
-            return jsonify({"ok": False, "error": "api_key is required"}), 400
-        if any(ord(ch) < 32 or ch in "\r\n" for ch in api_key):
-            return jsonify({"ok": False, "error": "api_key contains unsupported control characters"}), 400
-        if len(api_key) > 4096:
-            return jsonify({"ok": False, "error": "api_key is too long"}), 400
+
+        oauth_payload: Dict[str, str] = {}
+        if auth_type == "oauth":
+            if provider != "gemini":
+                return jsonify({"ok": False, "error": "OAuth credentials are only supported for Gemini"}), 400
+            oauth_payload = {
+                field: str(data.get(field) or "").strip()
+                for field in GEMINI_OAUTH_ENV_KEYS
+            }
+            missing = [field for field in ("project_id", "client_id", "client_secret", "refresh_token") if not oauth_payload[field]]
+            if missing:
+                return jsonify({"ok": False, "error": f"missing OAuth fields: {', '.join(missing)}"}), 400
+            for field, value in oauth_payload.items():
+                if any(ord(ch) < 32 or ch in "\r\n" for ch in value):
+                    return jsonify({"ok": False, "error": f"{field} contains unsupported control characters"}), 400
+                if len(value) > 8192:
+                    return jsonify({"ok": False, "error": f"{field} is too long"}), 400
+        else:
+            if not api_key:
+                return jsonify({"ok": False, "error": "api_key is required"}), 400
+            if any(ord(ch) < 32 or ch in "\r\n" for ch in api_key):
+                return jsonify({"ok": False, "error": "api_key contains unsupported control characters"}), 400
+            if len(api_key) > 4096:
+                return jsonify({"ok": False, "error": "api_key is too long"}), 400
 
         try:
             values = _read_env_file()
-            values[AI_PROVIDER_ENV_KEYS[provider]] = api_key
+            if auth_type == "oauth":
+                for field, env_key in GEMINI_OAUTH_ENV_KEYS.items():
+                    values[env_key] = oauth_payload[field]
+            else:
+                values[AI_PROVIDER_ENV_KEYS[provider]] = api_key
             _write_env_file(values)
         except PermissionError as exc:
             return jsonify({
@@ -4450,12 +4523,18 @@ def create_app(state, ring, config: Dict) -> Flask:
         result = {
             "ok": True,
             "provider": provider,
-            "env_key": AI_PROVIDER_ENV_KEYS[provider],
-            "masked": _mask_secret(api_key),
+            "auth_type": auth_type,
             "restart_requested": restart,
             "path": str(AI_ENV_PATH),
         }
-        state.append_status(f"AI API key updated for {provider}")
+        if auth_type == "oauth":
+            result["env_keys"] = {field: env_key for field, env_key in GEMINI_OAUTH_ENV_KEYS.items()}
+            result["masked"] = {field: _mask_secret(value) for field, value in oauth_payload.items()}
+            state.append_status("Gemini OAuth credentials updated")
+        else:
+            result["env_key"] = AI_PROVIDER_ENV_KEYS[provider]
+            result["masked"] = _mask_secret(api_key)
+            state.append_status(f"AI API key updated for {provider}")
 
         if restart:
             restart_helper = Path("/opt/morse-whisperer-pi/tools/restart_after_profile_switch.py")
@@ -4466,11 +4545,11 @@ def create_app(state, ring, config: Dict) -> Flask:
                     stderr=subprocess.DEVNULL,
                     start_new_session=True,
                 )
-                result["message"] = "API key saved. Service restart requested."
+                result["message"] = "AI credentials saved. Service restart requested."
             else:
-                result["message"] = "API key saved. Restart the service to load it."
+                result["message"] = "AI credentials saved. Restart the service to load it."
         else:
-            result["message"] = "API key saved. Restart the service to load it."
+            result["message"] = "AI credentials saved. Restart the service to load it."
 
         return jsonify(result)
 

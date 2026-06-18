@@ -52,6 +52,19 @@ External AI provider keys can be saved from the web UI. In CQ Rag Chew, choose
 the provider, paste the key into **Provider API key**, and press **Save API key
 & restart**.
 
+Gemini can also use OAuth credentials. Use the **Save Gemini OAuth & restart**
+button after entering:
+
+- Gemini project ID or project number
+- OAuth client ID
+- OAuth client secret
+- OAuth refresh token
+
+The OAuth client ID and secret from Google are not enough on their own for an
+unattended appliance. The Pi needs a refresh token so it can request short-lived
+access tokens and call Gemini with `Authorization: Bearer ...` plus
+`x-goog-user-project`.
+
 Under the hood, keys are stored in the service environment file:
 
 ```text
@@ -62,6 +75,10 @@ Set the key for the selected provider there:
 
 ```text
 GEMINI_API_KEY=...
+GEMINI_PROJECT_ID=...
+GEMINI_OAUTH_CLIENT_ID=...
+GEMINI_OAUTH_CLIENT_SECRET=...
+GEMINI_OAUTH_REFRESH_TOKEN=...
 GROQ_API_KEY=...
 OPENROUTER_API_KEY=...
 OPENAI_API_KEY=...

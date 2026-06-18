@@ -12,6 +12,7 @@ from unittest import mock
 import numpy as np
 
 from morse_whisperer.app import MorseWhispererApp
+from morse_whisperer import ai as ai_module
 from morse_whisperer.ai import analyse_copy
 from morse_whisperer.cq import channel_status, cq_config, dedupe_warnings, receive_status, separated_tone_competitor
 from morse_whisperer.display import FramebufferDisplay
@@ -401,6 +402,77 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertIn("rotate", warnings)
         self.assertNotIn("{\"error\"", warnings)
 
+    def test_gemini_oauth_credentials_use_bearer_and_user_project(self) -> None:
+        ai_module._GEMINI_OAUTH_CACHE.clear()
+        config = {
+            "station_callsign": "ZL1SXG",
+            "ai_enabled": True,
+            "ai_provider": "gemini",
+            "ai_model": "gemini-2.5-flash-lite",
+        }
+        messages = [
+            {"role": "system", "content": "Return JSON."},
+            {"role": "user", "content": "CQ CQ DE ZL2ABC K"},
+        ]
+
+        class DummyResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+        requests = []
+
+        def fake_urlopen(req, timeout):
+            requests.append(req)
+            if req.full_url == "https://oauth2.googleapis.com/token":
+                return DummyResponse({"access_token": "ya29.test-token", "expires_in": 3600})
+            return DummyResponse({
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "text": json.dumps({
+                                "intent": "cq",
+                                "remote_callsign": "ZL2ABC",
+                                "reply": "ZL2ABC DE ZL1SXG",
+                                "confidence": 0.8,
+                            })
+                        }]
+                    }
+                }]
+            })
+
+        env = {
+            "GEMINI_API_KEY": "api-key-that-should-not-be-used",
+            "GEMINI_PROJECT_ID": "721358093430",
+            "GEMINI_OAUTH_CLIENT_ID": "client-id",
+            "GEMINI_OAUTH_CLIENT_SECRET": "client-secret",
+            "GEMINI_OAUTH_REFRESH_TOKEN": "refresh-token",
+        }
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            result = ai_module._gemini_request(config, messages)
+
+        self.assertEqual(result["provider"], "gemini")
+        self.assertEqual(len(requests), 2)
+        generate_request = requests[1]
+        self.assertEqual(generate_request.headers["Authorization"], "Bearer ya29.test-token")
+        self.assertEqual(generate_request.headers["X-goog-user-project"], "721358093430")
+        self.assertNotIn("X-goog-api-key", generate_request.headers)
+
+    def test_gemini_api_key_path_still_uses_api_key_header(self) -> None:
+        with mock.patch.dict(os.environ, {"GEMINI_API_KEY": "AIza-test"}, clear=True):
+            headers = ai_module._gemini_headers({}, 5)
+
+        self.assertEqual(headers["x-goog-api-key"], "AIza-test")
+        self.assertNotIn("Authorization", headers)
+
     def test_cq_warning_dedupe_preserves_order(self) -> None:
         warnings = dedupe_warnings([
             "No decoded copy available.",
@@ -449,6 +521,51 @@ class RuntimeResetTests(unittest.TestCase):
                 status = app.test_client().get("/api/ai/env").get_json()
                 self.assertTrue(status["providers"]["gemini"]["present"])
                 self.assertEqual(status["providers"]["gemini"]["masked"], "abcd********5678")
+
+    def test_ai_env_api_saves_and_masks_gemini_oauth(self) -> None:
+        class DummyState:
+            def snapshot(self):
+                return {}
+
+            def update(self, **kwargs):
+                pass
+
+            def append_status(self, message):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_path = Path(tmp_dir) / "ai.env"
+            app = create_app(DummyState(), None, {"station_callsign": "ZL1SXG"})
+            payload = {
+                "provider": "gemini",
+                "auth_type": "oauth",
+                "project_id": "721358093430",
+                "client_id": "client-id.apps.googleusercontent.com",
+                "client_secret": "secret-value",
+                "refresh_token": "refresh-token-value",
+                "restart": False,
+            }
+
+            with mock.patch("morse_whisperer.web.AI_ENV_PATH", env_path):
+                response = app.test_client().post("/api/ai/env", json=payload)
+                self.assertEqual(response.status_code, 200)
+                body = response.get_json()
+                self.assertTrue(body["ok"])
+                self.assertEqual(body["auth_type"], "oauth")
+                self.assertNotIn("secret-value", json.dumps(body))
+                self.assertNotIn("refresh-token-value", json.dumps(body))
+
+                saved = env_path.read_text(encoding="utf-8")
+                self.assertIn("GEMINI_PROJECT_ID=", saved)
+                self.assertIn("GEMINI_OAUTH_CLIENT_ID=", saved)
+                self.assertIn("GEMINI_OAUTH_CLIENT_SECRET=", saved)
+                self.assertIn("GEMINI_OAUTH_REFRESH_TOKEN=", saved)
+                self.assertIn("secret-value", saved)
+                self.assertIn("refresh-token-value", saved)
+
+                status = app.test_client().get("/api/ai/env").get_json()
+                self.assertTrue(status["gemini_oauth"]["refresh_token"]["present"])
+                self.assertEqual(status["gemini_oauth"]["refresh_token"]["masked"], "refr***********alue")
 
     def test_web_apps_are_separate_pages(self) -> None:
         state = SharedState()

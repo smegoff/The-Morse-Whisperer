@@ -23,6 +23,9 @@ Morse Whisperer tabs:
 - **Network Setup**: view IP status, scan Wi-Fi, connect to a network.
 - **AI provider keys**: paste Gemini, Groq, OpenRouter, or OpenAI API keys.
   Stored keys are masked in the UI and written to `/etc/morse-whisperer/ai.env`.
+- **Gemini OAuth**: CQ Rag Chew also accepts Gemini project ID/number, OAuth
+  client ID, OAuth client secret, and refresh token. When present, OAuth is
+  preferred over the Gemini API key for Gemini calls.
 
 The Morse Whisperer app shows stable COPY, RAW, tone lock, signal quality, and operator controls.
 
