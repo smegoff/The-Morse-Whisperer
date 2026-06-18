@@ -13,6 +13,7 @@ The first implementation is listen-only foundation work:
 - `/api/cq/settings` JSON endpoint for CQ app settings.
 - Read-only CAT status probing through Hamlib `rigctl` when enabled.
 - Audio/decode based busy-frequency judgement.
+- OpenAI-backed CQ planning and reply drafting via `/api/cq/plan`.
 - Explicit transmit-disabled safety boundary.
 
 No PTT, frequency changing, automatic CQ calling, or QRZ upload is implemented
@@ -34,12 +35,25 @@ CQ settings live in `config.json` and are preserved by profile switching:
   "cq_band_allowlist": "40m,20m,15m,10m",
   "cq_busy_rms_threshold": 0.006,
   "cq_busy_snr_threshold_db": 6.0,
+  "cq_ai_enabled": true,
+  "cq_ai_provider": "openai",
+  "cq_ai_model": "gpt-4.1-mini",
   "cq_allow_transmit": false
 }
 ```
 
 `cq_allow_transmit` is forced false by the CQ API. It is present as an explicit
 future guardrail, not as an active feature.
+
+OpenAI uses the existing service environment file:
+
+```text
+/etc/morse-whisperer/ai.env
+```
+
+Set `OPENAI_API_KEY` there for OpenAI-backed planning. If the key is absent or
+the provider fails, CQ planning falls back to the local rules engine and reports
+a warning.
 
 ## Busy-Frequency Judgement
 
@@ -59,7 +73,8 @@ are proven together.
 ## Planned Phases
 
 1. Read-only CAT and busy-frequency status.
-2. Receive-side CQ detection and callsign extraction.
+2. OpenAI-assisted receive-side CQ detection, callsign extraction, and draft
+   reply planning.
 3. Local QSO/session log skeleton.
 4. Human-approved CW reply drafting.
 5. Guarded transmit path with explicit arm/disarm, band allowlist, max TX time,

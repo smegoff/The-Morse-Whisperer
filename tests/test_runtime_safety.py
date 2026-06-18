@@ -173,6 +173,60 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertEqual(config["cq_cat_baud"], 115200)
         self.assertFalse(config["cq_allow_transmit"])
 
+    def test_cq_plan_uses_openai_config_without_transmit(self) -> None:
+        class DummyState:
+            def snapshot(self):
+                return {
+                    "audio": {"level_status": "LOW", "rms": 0.001},
+                    "quality": {"squelch_open": False, "recent_activity": False, "snr_db": 0.0},
+                    "decode": {"stable_copy": "CQ CQ DE ZL2ABC K"},
+                }
+
+            def update(self, **kwargs):
+                pass
+
+            def append_status(self, message):
+                pass
+
+        config = {
+            "station_callsign": "ZL1SXG",
+            "cq_callsign": "ZL1SXG",
+            "cq_ai_enabled": True,
+            "cq_ai_provider": "openai",
+            "cq_ai_model": "gpt-4.1-mini",
+        }
+        app = create_app(DummyState(), None, config)
+
+        with (
+            mock.patch(
+                "morse_whisperer.cq.analyse_copy",
+                return_value={
+                    "ok": True,
+                    "provider": "openai",
+                    "detected_intent": "calling_cq",
+                    "their_call": "ZL2ABC",
+                    "warnings": [],
+                },
+            ) as analyse,
+            mock.patch(
+                "morse_whisperer.cq.suggest_reply",
+                return_value={
+                    "ok": True,
+                    "provider": "openai",
+                    "suggested_reply_text": "ZL2ABC DE ZL1SXG ZL1SXG KN",
+                    "warnings": [],
+                },
+            ),
+        ):
+            response = app.test_client().post("/api/cq/plan", json={"mode": "auto"})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertFalse(body["transmit_available"])
+        self.assertEqual(body["reply"]["provider"], "openai")
+        self.assertEqual(analyse.call_args.args[1]["ai_provider"], "openai")
+        self.assertEqual(analyse.call_args.args[1]["ai_model"], "gpt-4.1-mini")
+
 
 class ProfileSwitchTests(unittest.TestCase):
     def test_switch_preserves_non_profile_settings(self) -> None:

@@ -1529,11 +1529,27 @@ input:focus,select:focus,textarea:focus{
           <input id="cqBusyRms" type="number" min="0.0001" max="0.2" step="0.0005">
           <div class="hint">Audio level above this counts as possibly occupied.</div>
         </div>
+
+        <div class="setting">
+          <label for="cqAiProvider">CQ AI engine</label>
+          <select id="cqAiProvider">
+            <option value="openai">OpenAI / ChatGPT</option>
+            <option value="local">Local fallback</option>
+          </select>
+          <div class="hint">OpenAI uses /etc/morse-whisperer/ai.env. Output is suggestion-only.</div>
+        </div>
+
+        <div class="setting">
+          <label for="cqAiModel">CQ AI model</label>
+          <input id="cqAiModel" type="text" placeholder="gpt-4.1-mini">
+          <div class="hint">Used for CQ planning and reply drafts.</div>
+        </div>
       </div>
 
       <div class="controls" style="margin-top:14px">
         <button class="primary" onclick="saveCqSettings()">Save CQ settings</button>
         <button onclick="loadCqStatus()">Refresh CQ status</button>
+        <button onclick="planCqReply()">Plan next reply</button>
       </div>
 
       <div class="kv" style="margin-top:12px">
@@ -1541,8 +1557,10 @@ input:focus,select:focus,textarea:focus{
         <div>Reason</div><div id="cqReason">--</div>
         <div>Radio</div><div id="cqRadio">--</div>
         <div>CAT</div><div id="cqCat">--</div>
+        <div>AI</div><div id="cqAi">--</div>
         <div>TX</div><div id="cqTx">disabled</div>
       </div>
+      <pre class="log" id="cqPlan" style="margin-top:10px">No CQ plan yet.</pre>
       <div class="small" id="cqMsg" style="margin-top:10px">CQ Rag Chew is ready for listen-only setup.</div>
     </div>
   </section>
@@ -2742,6 +2760,8 @@ function renderCqStatus(s){
   if($('cqCatBaud')) $('cqCatBaud').value=cfg.cq_cat_baud||19200;
   if($('cqBands')) $('cqBands').value=cfg.cq_band_allowlist||'40m,20m,15m,10m';
   if($('cqBusyRms')) $('cqBusyRms').value=cfg.cq_busy_rms_threshold ?? 0.006;
+  if($('cqAiProvider')) $('cqAiProvider').value=(cfg.cq_ai_provider||'openai');
+  if($('cqAiModel')) $('cqAiModel').value=(cfg.cq_ai_model||'gpt-4.1-mini');
 
   const state=channel.state||'unknown';
   if($('cqStateBadge')){
@@ -2755,6 +2775,7 @@ function renderCqStatus(s){
     $('cqRadio').textContent=freq+' '+(radio.mode||'');
   }
   if($('cqCat')) $('cqCat').textContent=radio.available ? 'online via '+(radio.backend||'rigctl') : (radio.error||'disabled');
+  if($('cqAi')) $('cqAi').textContent=((s.ai&&s.ai.provider)||cfg.cq_ai_provider||'openai')+' / '+((s.ai&&s.ai.model)||cfg.cq_ai_model||'gpt-4.1-mini');
   if($('cqTx')) $('cqTx').textContent=s.transmit_available ? 'available' : 'disabled in this milestone';
 }
 
@@ -2779,7 +2800,10 @@ async function saveCqSettings(){
     cq_cat_model:$('cqCatModel')?.value||'3073',
     cq_cat_baud:Number($('cqCatBaud')?.value||19200),
     cq_band_allowlist:$('cqBands')?.value||'40m,20m,15m,10m',
-    cq_busy_rms_threshold:Number($('cqBusyRms')?.value||0.006)
+    cq_busy_rms_threshold:Number($('cqBusyRms')?.value||0.006),
+    cq_ai_enabled:true,
+    cq_ai_provider:$('cqAiProvider')?.value||'openai',
+    cq_ai_model:$('cqAiModel')?.value||'gpt-4.1-mini'
   };
   try{
     const r=await fetch('/api/cq/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -2789,6 +2813,32 @@ async function saveCqSettings(){
     await loadCqStatus();
   }catch(e){
     if($('cqMsg')) $('cqMsg').textContent='CQ save failed: '+e;
+  }
+}
+
+async function planCqReply(){
+  if($('cqPlan')) $('cqPlan').textContent='Planning from current copy...';
+  try{
+    const r=await fetch('/api/cq/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'auto'})});
+    const s=await r.json();
+    const analysis=s.analysis||{}, reply=s.reply||{}, channel=s.channel||{};
+    const warnings=(s.warnings||[]).concat((reply.warnings||[])).filter(Boolean);
+    const lines=[
+      'Phase: '+(s.phase||'--'),
+      'Channel: '+(channel.state||'unknown')+' - '+(channel.reason||''),
+      'AI provider: '+(analysis.provider||reply.provider||'local')+(analysis.fallback_used||reply.fallback_used?' (fallback used)':''),
+      'Intent: '+(analysis.detected_intent||'--'),
+      'Station: '+(analysis.their_call||'--'),
+      'Draft: '+(reply.suggested_reply_text||'(no draft yet)'),
+      'Meaning: '+(reply.plain_english||analysis.plain_english||'--'),
+      'TX: disabled in this milestone'
+    ];
+    if(warnings.length) lines.push('Warnings: '+warnings.join(' | '));
+    if($('cqPlan')) $('cqPlan').textContent=lines.join('\n');
+    if($('cqMsg')) $('cqMsg').textContent='CQ plan generated for review only.';
+  }catch(e){
+    if($('cqPlan')) $('cqPlan').textContent='CQ plan failed: '+e;
+    if($('cqMsg')) $('cqMsg').textContent='CQ plan failed.';
   }
 }
 

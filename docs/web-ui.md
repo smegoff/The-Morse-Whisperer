@@ -12,7 +12,7 @@ Tabs:
 - **CW Generator / Trainer**: enter text, set tone/WPM/volume, and play CW through the USB output.
 - **Network Setup**: view IP status, scan Wi-Fi, connect to a network.
 - **CQ Rag Chew**: listen-only assisted operating foundation, including callsign,
-  CAT read-only setup, and busy-frequency status.
+  CAT read-only setup, busy-frequency status, and OpenAI-backed reply planning.
 
 The top of the page shows stable COPY, RAW, tone lock, signal quality, and operator controls.
 

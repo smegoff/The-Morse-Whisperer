@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from flask import jsonify, request
 
+from .ai import analyse_copy, suggest_reply
 from .config import save_config
 
 
@@ -23,6 +24,9 @@ CQ_DEFAULTS: Dict[str, Any] = {
     "cq_band_allowlist": "40m,20m,15m,10m",
     "cq_busy_rms_threshold": 0.006,
     "cq_busy_snr_threshold_db": 6.0,
+    "cq_ai_enabled": True,
+    "cq_ai_provider": "openai",
+    "cq_ai_model": "gpt-4.1-mini",
     "cq_allow_transmit": False,
 }
 
@@ -37,6 +41,9 @@ CQ_SETTINGS_ALLOWLIST = {
     "cq_band_allowlist": str,
     "cq_busy_rms_threshold": float,
     "cq_busy_snr_threshold_db": float,
+    "cq_ai_enabled": bool,
+    "cq_ai_provider": str,
+    "cq_ai_model": str,
 }
 
 
@@ -191,8 +198,74 @@ def cq_status(snapshot: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any
             "Use the busy/clear judgement as advisory until CAT and audio evidence are proven on the bench.",
         ],
         "config": cfg,
+        "ai": {
+            "enabled": bool(cfg.get("cq_ai_enabled")),
+            "provider": str(cfg.get("cq_ai_provider") or "openai"),
+            "model": str(cfg.get("cq_ai_model") or config.get("ai_model") or "gpt-4.1-mini"),
+            "mode": "suggestion_only",
+        },
         "radio": read_cat_status(cfg),
         "channel": channel_status(snapshot, cfg),
+    }
+
+
+def latest_copy(snapshot: Dict[str, Any]) -> str:
+    decode = snapshot.get("decode", {}) or {}
+    return str(
+        decode.get("stable_copy")
+        or decode.get("copy")
+        or decode.get("candidate_copy")
+        or decode.get("stable_raw")
+        or decode.get("raw")
+        or ""
+    ).strip()
+
+
+def cq_ai_config(config: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, Any]:
+    ai_cfg = dict(config)
+    ai_cfg["ai_enabled"] = bool(cfg.get("cq_ai_enabled"))
+    ai_cfg["ai_provider"] = str(cfg.get("cq_ai_provider") or "openai")
+    ai_cfg["ai_model"] = str(cfg.get("cq_ai_model") or config.get("ai_model") or "gpt-4.1-mini")
+    ai_cfg["ai_operator_callsign"] = str(cfg.get("cq_callsign") or config.get("station_callsign") or "N0CALL")
+    ai_cfg["ai_reply_style"] = "short_cw"
+    ai_cfg["ai_require_confirmation"] = True
+    return ai_cfg
+
+
+def cq_plan(snapshot: Dict[str, Any], config: Dict[str, Any], requested_mode: str | None = None) -> Dict[str, Any]:
+    cfg = cq_config(config)
+    channel = channel_status(snapshot, cfg)
+    radio = read_cat_status(cfg)
+    copy = latest_copy(snapshot)
+    ai_cfg = cq_ai_config(config, cfg)
+
+    analysis = analyse_copy(copy, ai_cfg, snap=snapshot)
+    reply = suggest_reply(analysis, ai_cfg, requested_mode=requested_mode)
+
+    warnings = []
+    warnings.extend(analysis.get("warnings") or [])
+    warnings.extend(reply.get("warnings") or [])
+    if channel.get("state") == "busy" and not copy:
+        warnings.append("Frequency appears busy, but no usable copy is available yet.")
+    if channel.get("state") == "clear":
+        warnings.append("No station is currently copied; a CQ draft is not generated until transmit controls exist.")
+
+    return {
+        "ok": True,
+        "app": "CQ Rag Chew",
+        "phase": "openai_planning_listen_only",
+        "transmit_available": False,
+        "copy": copy,
+        "channel": channel,
+        "radio": radio,
+        "analysis": analysis,
+        "reply": reply,
+        "warnings": warnings,
+        "safety": [
+            "OpenAI is used only for analysis and draft suggestions.",
+            "No CQ Rag Chew endpoint can transmit, key PTT, or change frequency in this milestone.",
+            "Human review remains required before any future transmit path.",
+        ],
     }
 
 
@@ -230,6 +303,10 @@ def install_cq_routes(app, state, config: Dict[str, Any]) -> None:
                 value = clamp_float(value, 0.0001, 0.2, 0.006)
             elif key == "cq_busy_snr_threshold_db":
                 value = clamp_float(value, 0.0, 40.0, 6.0)
+            elif key == "cq_ai_provider" and value not in ("local", "openai"):
+                value = "openai"
+            elif key == "cq_ai_model":
+                value = str(value or "gpt-4.1-mini").strip()[:80]
 
             config[key] = value
             changed[key] = value
@@ -239,3 +316,10 @@ def install_cq_routes(app, state, config: Dict[str, Any]) -> None:
         state.update(config=config)
         state.append_status(f"CQ Rag Chew settings saved: {', '.join(changed.keys()) or 'none'}")
         return jsonify({"ok": True, "changed": changed, "config": cq_config(config)})
+
+    @app.route("/api/cq/plan", methods=["POST"])
+    def cq_plan_route():
+        data = request.get_json(silent=True) or {}
+        mode = data.get("mode")
+        result = cq_plan(state.snapshot(), config, requested_mode=mode)
+        return jsonify(result)
