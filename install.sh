@@ -29,7 +29,7 @@ apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   python3 python3-venv python3-pip python3-numpy python3-pil python3-rpi.gpio \
   alsa-utils network-manager wireless-tools iw curl ca-certificates unzip rsync \
-  polkitd
+  polkitd pocketsphinx pocketsphinx-en-us
 
 if ! getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
   echo "[mw-install] Creating service group: $SERVICE_GROUP"

@@ -7,6 +7,9 @@ import base64
 import json
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -686,6 +689,77 @@ def transcribe_audio_gemini(wav_bytes: bytes, config: Dict[str, Any], sample_rat
     parsed["duration_sec"] = float(duration_sec)
     parsed["local_only"] = False
     return parsed
+
+
+def transcribe_audio_pocketsphinx(wav_bytes: bytes, config: Dict[str, Any], sample_rate: int, duration_sec: float) -> Dict[str, Any]:
+    exe = shutil.which("pocketsphinx_continuous")
+    if not exe:
+        raise RuntimeError("pocketsphinx_continuous is not installed")
+    if not wav_bytes:
+        raise RuntimeError("No audio bytes supplied")
+
+    timeout = float(config.get("voice_local_timeout_sec", 25) or 25)
+    with tempfile.NamedTemporaryFile(prefix="mw-voice-", suffix=".wav", delete=False) as handle:
+        path = handle.name
+        handle.write(wav_bytes)
+
+    try:
+        cp = subprocess.run(
+            [
+                exe,
+                "-infile",
+                path,
+                "-samprate",
+                str(int(sample_rate)),
+                "-logfn",
+                "/dev/null",
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+        )
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    text_lines: List[str] = []
+    for line in (cp.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        upper = line.upper()
+        if upper.startswith(("READY", "LISTENING", "ERROR", "INFO")):
+            continue
+        text_lines.append(line)
+
+    transcript = " ".join(text_lines).strip()
+    warnings = []
+    if cp.returncode not in (0,):
+        warnings.append(f"PocketSphinx exited with code {cp.returncode}.")
+    if cp.stderr.strip():
+        warnings.append(cp.stderr.strip()[:300])
+    if not transcript:
+        warnings.append("PocketSphinx did not find intelligible speech.")
+
+    return {
+        "ok": True,
+        "provider": "pocketsphinx",
+        "model": "pocketsphinx-en-us",
+        "transcript": transcript,
+        "confidence": 0.35 if transcript else 0.0,
+        "language": "en-US",
+        "heard_speech": bool(transcript),
+        "callsigns": _extract_callsigns(transcript),
+        "summary": transcript[:160],
+        "warnings": warnings,
+        "sample_rate": int(sample_rate),
+        "duration_sec": float(duration_sec),
+        "local_only": True,
+    }
 
 
 def _analysis_prompt(text: str, config: Dict[str, Any], snap: Optional[Dict[str, Any]], local: Dict[str, Any]) -> List[Dict[str, str]]:

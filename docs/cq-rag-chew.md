@@ -141,6 +141,10 @@ mono WAV file, and asks Gemini to transcribe any speech it can hear:
 POST /api/cq/voice/transcribe
 ```
 
+If Gemini is unavailable or the API key is rejected, the appliance falls back to
+local PocketSphinx when installed. PocketSphinx is fully offline and useful as a
+basic proof path, but it is less accurate than Gemini on noisy SSB/radio audio.
+
 This is a listen-only, press-to-transcribe feature. It is not a real-time speech
 stream yet. Google documents Gemini audio understanding as suitable for
 transcription, but not real-time transcription; the future streaming path should

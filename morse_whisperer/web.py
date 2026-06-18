@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Dict
 
 from flask import Flask, Response, jsonify, request, send_from_directory
-from .ai import install_ai_routes, transcribe_audio_gemini
+from .ai import install_ai_routes, transcribe_audio_gemini, transcribe_audio_pocketsphinx
 from .cq import install_cq_routes
 
 from .config import DEFAULTS, save_config
@@ -3537,24 +3537,33 @@ def create_app(state, ring, config: Dict) -> Flask:
         try:
             result = transcribe_audio_gemini(wav_bytes, config, sample_rate, duration)
         except Exception as exc:
-            result = {
-                "ok": False,
-                "error": str(exc),
-                "provider": "gemini",
-                "model": str(config.get("cq_voice_model") or config.get("cq_ai_model") or "gemini-2.5-flash-lite"),
-                "transcript": "",
-                "heard_speech": False,
-                "warnings": [str(exc)],
-                "sample_rate": sample_rate,
-                "duration_sec": duration,
-                "rms": rms,
-                "peak": peak,
-            }
-            status_code = 502
+            gemini_error = str(exc)
+            try:
+                result = transcribe_audio_pocketsphinx(wav_bytes, config, sample_rate, duration)
+                result.setdefault("warnings", [])
+                result["warnings"].insert(0, f"Gemini transcription failed; local PocketSphinx fallback used: {gemini_error}")
+                result["fallback_used"] = True
+                status_code = 200
+            except Exception as local_exc:
+                result = {
+                    "ok": False,
+                    "error": f"Gemini failed: {gemini_error}; local fallback failed: {local_exc}",
+                    "provider": "none",
+                    "model": str(config.get("cq_voice_model") or config.get("cq_ai_model") or "gemini-2.5-flash-lite"),
+                    "transcript": "",
+                    "heard_speech": False,
+                    "warnings": [gemini_error, str(local_exc)],
+                    "sample_rate": sample_rate,
+                    "duration_sec": duration,
+                    "rms": rms,
+                    "peak": peak,
+                }
+                status_code = 502
         else:
-            result["rms"] = rms
-            result["peak"] = peak
             status_code = 200
+
+        result["rms"] = rms
+        result["peak"] = peak
 
         snap = state.snapshot()
         cq_voice = snap.get("cq_voice", {}) if isinstance(snap, dict) else {}

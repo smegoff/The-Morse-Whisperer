@@ -534,6 +534,50 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertIn("cq_voice", state.data)
         self.assertGreater(len(transcribe.call_args.args[0]), 44)
 
+    def test_cq_voice_transcribe_falls_back_to_pocketsphinx(self) -> None:
+        class DummyRing:
+            def last(self, seconds):
+                return np.full(8000 * 2, 0.01, dtype=np.float32)
+
+        class DummyState:
+            def __init__(self):
+                self.data = {}
+
+            def snapshot(self):
+                return dict(self.data)
+
+            def update(self, **kwargs):
+                self.data.update(kwargs)
+
+            def append_status(self, message):
+                pass
+
+        app = create_app(DummyState(), DummyRing(), {"station_callsign": "ZL1SXG", "sample_rate": 8000})
+
+        with (
+            mock.patch("morse_whisperer.web.transcribe_audio_gemini", side_effect=RuntimeError("bad key")),
+            mock.patch(
+                "morse_whisperer.web.transcribe_audio_pocketsphinx",
+                return_value={
+                    "ok": True,
+                    "provider": "pocketsphinx",
+                    "model": "pocketsphinx-en-us",
+                    "transcript": "hello radio",
+                    "confidence": 0.35,
+                    "heard_speech": True,
+                    "warnings": [],
+                },
+            ),
+        ):
+            response = app.test_client().post("/api/cq/voice/transcribe", json={"seconds": 2})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        self.assertEqual(body["provider"], "pocketsphinx")
+        self.assertEqual(body["transcript"], "hello radio")
+        self.assertTrue(body["fallback_used"])
+        self.assertIn("Gemini transcription failed", body["warnings"][0])
+
     def test_tft_draws_cq_active_app_screen(self) -> None:
         state = SharedState()
         state.update(
