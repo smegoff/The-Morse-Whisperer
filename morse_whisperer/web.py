@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Dict
 
 from flask import Flask, Response, jsonify, request, send_from_directory
-from .ai import install_ai_routes, transcribe_audio_gemini, transcribe_audio_pocketsphinx
+from .ai import install_ai_routes, provider_error_summary, transcribe_audio_gemini, transcribe_audio_pocketsphinx
 from .cq import install_cq_routes
 
 from .config import DEFAULTS, save_config
@@ -3611,7 +3611,7 @@ def create_app(state, ring, config: Dict) -> Flask:
         try:
             result = transcribe_audio_gemini(wav_bytes, config, sample_rate, duration)
         except Exception as exc:
-            gemini_error = str(exc)
+            gemini_error = provider_error_summary("gemini", exc)
             try:
                 result = transcribe_audio_pocketsphinx(wav_bytes, config, sample_rate, duration)
                 result.setdefault("warnings", [])

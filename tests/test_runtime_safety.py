@@ -708,7 +708,12 @@ class RuntimeResetTests(unittest.TestCase):
         app = create_app(DummyState(), DummyRing(), {"station_callsign": "ZL1SXG", "sample_rate": 8000})
 
         with (
-            mock.patch("morse_whisperer.web.transcribe_audio_gemini", side_effect=RuntimeError("bad key")),
+            mock.patch(
+                "morse_whisperer.web.transcribe_audio_gemini",
+                side_effect=RuntimeError(
+                    'gemini HTTP 401: {"error":{"message":"Request had invalid authentication credentials","status":"UNAUTHENTICATED"}}'
+                ),
+            ),
             mock.patch(
                 "morse_whisperer.web.transcribe_audio_pocketsphinx",
                 return_value={
@@ -730,6 +735,8 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertEqual(body["transcript"], "hello radio")
         self.assertTrue(body["fallback_used"])
         self.assertIn("Gemini transcription failed", body["warnings"][0])
+        self.assertIn("authentication failed", body["warnings"][0])
+        self.assertNotIn("{\"error\"", body["warnings"][0])
 
     def test_tft_draws_cq_active_app_screen(self) -> None:
         state = SharedState()

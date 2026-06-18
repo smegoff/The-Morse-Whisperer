@@ -460,6 +460,10 @@ def _provider_error_summary(provider: str, exc: Exception) -> str:
     return f"{provider} provider failed; local fallback used: {first_line}"
 
 
+def provider_error_summary(provider: str, exc: Exception) -> str:
+    return _provider_error_summary(provider, exc)
+
+
 def _gemini_oauth_value(name: str) -> str:
     return os.environ.get(name, "").strip()
 
