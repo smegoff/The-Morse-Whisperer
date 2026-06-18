@@ -12,7 +12,7 @@ Apps:
   decoder settings, trainer, and network setup.
 - **CQ Rag Chew** at `/cq`: listen-only assisted operating foundation,
   including callsign, CAT read-only setup, busy-frequency status, and
-  OpenAI-backed reply planning.
+  provider-backed reply planning.
 
 The top of each app has a small app switcher.
 

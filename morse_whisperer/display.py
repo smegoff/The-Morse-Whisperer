@@ -628,7 +628,7 @@ class FramebufferDisplay:
 
         call = str(cfg.get("cq_callsign") or cfg.get("station_callsign") or "N0CALL").upper()
         cat = "CAT ON" if cfg.get("cq_cat_enabled") else "CAT OFF"
-        ai = str(cfg.get("cq_ai_provider") or "openai").upper()
+        ai = str(cfg.get("cq_ai_provider") or "gemini").upper()
 
         impairments = []
         if channel != "CLEAR" and not copy and (level in ("LOW", "IDLE") or rms < 0.006 or peak < 0.025):
@@ -672,7 +672,7 @@ class FramebufferDisplay:
             ("Reason", reason),
             ("Issues", issue_text),
             ("CAT", f"{cat}  {cfg.get('cq_cat_device', '/dev/ttyUSB0')}"),
-            ("AI", f"{ai}  {cfg.get('cq_ai_model', 'gpt-4.1-mini')}"),
+            ("AI", f"{ai}  {cfg.get('cq_ai_model', 'gemini-2.5-flash-lite')}"),
             ("Audio", f"{level} rms {rms:.3f} pk {peak:.3f}"),
             ("TX", "DISABLED"),
         ]

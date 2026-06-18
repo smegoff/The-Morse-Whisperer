@@ -344,11 +344,11 @@ def suggest_reply_local(analysis: Dict[str, Any], config: Dict[str, Any], reques
 
 
 
-# MW_AI_OPENAI_PROVIDER_REPAIR_V1
+# MW_AI_PROVIDER_REPAIR_V2
 # Local-first rule:
 # - Local decode and local QSO parsing always run first.
-# - OpenAI/ChatGPT is optional assistance only.
-# - If OpenAI fails, local result is returned with a warning.
+# - External AI providers are optional assistance only.
+# - If a provider fails, local result is returned with a warning.
 
 def _strip_code_fences(text: str) -> str:
     text = (text or "").strip()
@@ -374,12 +374,69 @@ def _extract_response_text(payload: Dict[str, Any]) -> str:
     return "\n".join(chunks).strip()
 
 
-def _openai_enabled(config: Dict[str, Any]) -> bool:
-    return bool(config.get("ai_enabled", False)) and str(config.get("ai_provider", "local")).lower() == "openai"
+def _chat_completion_text(payload: Dict[str, Any]) -> str:
+    choices = payload.get("choices") or []
+    if not choices or not isinstance(choices[0], dict):
+        return ""
+    message = choices[0].get("message") or {}
+    content = message.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    return ""
+
+
+def _gemini_response_text(payload: Dict[str, Any]) -> str:
+    chunks: List[str] = []
+    for candidate in payload.get("candidates", []) or []:
+        if not isinstance(candidate, dict):
+            continue
+        content = candidate.get("content") or {}
+        for part in content.get("parts", []) or []:
+            if isinstance(part, dict) and isinstance(part.get("text"), str):
+                chunks.append(part["text"])
+    return "\n".join(chunks).strip()
+
+
+def _provider(config: Dict[str, Any]) -> str:
+    return str(config.get("ai_provider", "local") or "local").strip().lower()
+
+
+def _external_ai_enabled(config: Dict[str, Any]) -> bool:
+    return bool(config.get("ai_enabled", False)) and _provider(config) in {"openai", "gemini", "groq", "openrouter"}
+
+
+def _env_key(config: Dict[str, Any], provider: str) -> str:
+    explicit = str(config.get("ai_api_key_env") or "").strip()
+    if explicit and not (provider != "openai" and explicit == "OPENAI_API_KEY"):
+        return explicit
+    return {
+        "openai": "OPENAI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "groq": "GROQ_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
+    }.get(provider, "OPENAI_API_KEY")
+
+
+def _parse_provider_json(provider: str, model: str, output_text: str) -> Dict[str, Any]:
+    if not output_text:
+        raise RuntimeError(f"{provider} response did not include output text")
+
+    try:
+        parsed = json.loads(_strip_code_fences(output_text))
+    except Exception as e:
+        raise RuntimeError(f"{provider} output was not valid JSON: {output_text[:600]}") from e
+
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"{provider} output JSON was not an object")
+
+    parsed["provider"] = provider
+    parsed["model"] = model
+    parsed["local_only"] = False
+    return parsed
 
 
 def _openai_request(config: Dict[str, Any], messages: List[Dict[str, str]]) -> Dict[str, Any]:
-    api_key_env = str(config.get("ai_api_key_env") or "OPENAI_API_KEY")
+    api_key_env = _env_key(config, "openai")
     api_key = os.environ.get(api_key_env, "").strip()
 
     if not api_key:
@@ -413,22 +470,119 @@ def _openai_request(config: Dict[str, Any], messages: List[Dict[str, str]]) -> D
         detail = e.read().decode("utf-8", "replace")
         raise RuntimeError(f"OpenAI HTTP {e.code}: {detail[:600]}") from e
 
-    output_text = _extract_response_text(payload)
-    if not output_text:
-        raise RuntimeError("OpenAI response did not include output text")
+    return _parse_provider_json("openai", model, _extract_response_text(payload))
+
+
+def _chat_request(
+    config: Dict[str, Any],
+    provider: str,
+    messages: List[Dict[str, str]],
+    url: str,
+    default_model: str,
+) -> Dict[str, Any]:
+    api_key_env = _env_key(config, provider)
+    api_key = os.environ.get(api_key_env, "").strip()
+
+    if not api_key:
+        raise RuntimeError(f"{api_key_env} is not set in systemd environment")
+
+    model = str(config.get("ai_model") or default_model)
+    timeout = float(config.get("ai_timeout_sec", 20) or 20)
+    body = {
+        "model": model,
+        "messages": messages,
+        "temperature": float(config.get("ai_temperature", 0.2) or 0.2),
+        "max_tokens": int(config.get("ai_max_output_tokens", 700) or 700),
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if provider == "openrouter":
+        headers["HTTP-Referer"] = str(config.get("ai_site_url") or "http://morse-whisperer.local")
+        headers["X-Title"] = str(config.get("ai_app_title") or "The Morse Whisperer")
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
 
     try:
-        parsed = json.loads(_strip_code_fences(output_text))
-    except Exception as e:
-        raise RuntimeError(f"OpenAI output was not valid JSON: {output_text[:600]}") from e
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+            payload = json.loads(raw)
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        raise RuntimeError(f"{provider} HTTP {e.code}: {detail[:600]}") from e
 
-    if not isinstance(parsed, dict):
-        raise RuntimeError("OpenAI output JSON was not an object")
+    return _parse_provider_json(provider, model, _chat_completion_text(payload))
 
-    parsed["provider"] = "openai"
-    parsed["model"] = model
-    parsed["local_only"] = False
-    return parsed
+
+def _gemini_request(config: Dict[str, Any], messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    api_key_env = _env_key(config, "gemini")
+    api_key = os.environ.get(api_key_env, "").strip()
+
+    if not api_key:
+        raise RuntimeError(f"{api_key_env} is not set in systemd environment")
+
+    model = str(config.get("ai_model") or "gemini-2.5-flash-lite")
+    timeout = float(config.get("ai_timeout_sec", 20) or 20)
+    system_text = "\n".join(m["content"] for m in messages if m.get("role") == "system")
+    user_text = "\n\n".join(m["content"] for m in messages if m.get("role") != "system")
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+        "generationConfig": {
+            "temperature": float(config.get("ai_temperature", 0.2) or 0.2),
+            "maxOutputTokens": int(config.get("ai_max_output_tokens", 700) or 700),
+            "responseMimeType": "application/json",
+        },
+    }
+    if system_text:
+        body["systemInstruction"] = {"parts": [{"text": system_text}]}
+
+    req = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+            payload = json.loads(raw)
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        raise RuntimeError(f"gemini HTTP {e.code}: {detail[:600]}") from e
+
+    return _parse_provider_json("gemini", model, _gemini_response_text(payload))
+
+
+def _provider_request(config: Dict[str, Any], messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    provider = _provider(config)
+    if provider == "openai":
+        return _openai_request(config, messages)
+    if provider == "gemini":
+        return _gemini_request(config, messages)
+    if provider == "groq":
+        return _chat_request(
+            config,
+            provider,
+            messages,
+            "https://api.groq.com/openai/v1/chat/completions",
+            "llama-3.1-8b-instant",
+        )
+    if provider == "openrouter":
+        return _chat_request(
+            config,
+            provider,
+            messages,
+            "https://openrouter.ai/api/v1/chat/completions",
+            "openrouter/free",
+        )
+    raise RuntimeError(f"Unsupported AI provider: {provider}")
 
 
 def _analysis_prompt(text: str, config: Dict[str, Any], snap: Optional[Dict[str, Any]], local: Dict[str, Any]) -> List[Dict[str, str]]:
@@ -501,11 +655,12 @@ def analyse_copy(text: str, config: Dict[str, Any], snap: Optional[Dict[str, Any
     local.setdefault("provider", "local")
     local.setdefault("local_only", True)
 
-    if not _openai_enabled(config):
+    if not _external_ai_enabled(config):
         return local
 
+    provider = _provider(config)
     try:
-        result = _openai_request(config, _analysis_prompt(text, config, snap, local))
+        result = _provider_request(config, _analysis_prompt(text, config, snap, local))
 
         cleaned = _normalise_copy(str(result.get("cleaned_copy") or local.get("cleaned_copy") or text))
         result.setdefault("ok", True)
@@ -535,7 +690,7 @@ def analyse_copy(text: str, config: Dict[str, Any], snap: Optional[Dict[str, Any
     except Exception as e:
         local["fallback_used"] = True
         local.setdefault("warnings", [])
-        local["warnings"].append(f"OpenAI provider failed; local fallback used: {e}")
+        local["warnings"].append(f"{provider} provider failed; local fallback used: {e}")
         return local
 
 
@@ -544,11 +699,12 @@ def suggest_reply(analysis: Dict[str, Any], config: Dict[str, Any], requested_mo
     local.setdefault("provider", "local")
     local.setdefault("local_only", True)
 
-    if not _openai_enabled(config):
+    if not _external_ai_enabled(config):
         return local
 
+    provider = _provider(config)
     try:
-        result = _openai_request(config, _reply_prompt(analysis, config, local, requested_mode))
+        result = _provider_request(config, _reply_prompt(analysis, config, local, requested_mode))
         result.setdefault("ok", True)
         result.setdefault("suggested_reply_text", local.get("suggested_reply_text", ""))
         result.setdefault("plain_english", local.get("plain_english", ""))
@@ -562,7 +718,7 @@ def suggest_reply(analysis: Dict[str, Any], config: Dict[str, Any], requested_mo
     except Exception as e:
         local["fallback_used"] = True
         local.setdefault("warnings", [])
-        local["warnings"].append(f"OpenAI provider failed; local fallback used: {e}")
+        local["warnings"].append(f"{provider} provider failed; local fallback used: {e}")
         return local
 
 

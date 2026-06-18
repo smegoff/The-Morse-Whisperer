@@ -14,7 +14,7 @@ The first implementation is listen-only foundation work:
 - Read-only CAT status probing through Hamlib `rigctl` when enabled.
 - Audio/decode based busy-frequency judgement.
 - Receive status for any audible activity, not only CQ calls.
-- OpenAI-backed listening analysis and reply drafting via `/api/cq/plan`.
+- Provider-backed listening analysis and reply drafting via `/api/cq/plan`.
 - Web waterfall display fed by `/api/waterfall` from recent audio.
 - Explicit transmit-disabled safety boundary.
 
@@ -38,8 +38,8 @@ CQ settings live in `config.json` and are preserved by profile switching:
   "cq_busy_rms_threshold": 0.006,
   "cq_busy_snr_threshold_db": 6.0,
   "cq_ai_enabled": true,
-  "cq_ai_provider": "openai",
-  "cq_ai_model": "gpt-4.1-mini",
+  "cq_ai_provider": "gemini",
+  "cq_ai_model": "gemini-2.5-flash-lite",
   "cq_allow_transmit": false
 }
 ```
@@ -47,15 +47,24 @@ CQ settings live in `config.json` and are preserved by profile switching:
 `cq_allow_transmit` is forced false by the CQ API. It is present as an explicit
 future guardrail, not as an active feature.
 
-OpenAI uses the existing service environment file:
+External AI providers use the existing service environment file:
 
 ```text
 /etc/morse-whisperer/ai.env
 ```
 
-Set `OPENAI_API_KEY` there for OpenAI-backed planning. If the key is absent or
-the provider fails, CQ planning falls back to the local rules engine and reports
-a warning.
+Set the key for the selected provider there:
+
+```text
+GEMINI_API_KEY=...
+GROQ_API_KEY=...
+OPENROUTER_API_KEY=...
+OPENAI_API_KEY=...
+```
+
+Supported `cq_ai_provider` values are `local`, `gemini`, `groq`,
+`openrouter`, and `openai`. If the key is absent or the provider fails, CQ
+planning falls back to the local rules engine and reports a warning.
 
 ## Busy-Frequency Judgement
 
@@ -118,7 +127,7 @@ The JSON source is:
 ## Planned Phases
 
 1. Read-only CAT and busy-frequency status.
-2. OpenAI-assisted receive-side listening, callsign extraction, intent
+2. AI-assisted receive-side listening, callsign extraction, intent
    detection, and draft reply planning.
 3. Local QSO/session log skeleton.
 4. Human-approved CW reply drafting.

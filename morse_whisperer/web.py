@@ -1577,14 +1577,17 @@ input:focus,select:focus,textarea:focus{
             <label for="setAiProvider">Reply source</label>
             <select id="setAiProvider">
               <option value="local">Local rules only</option>
+              <option value="gemini">Gemini free tier</option>
+              <option value="groq">Groq</option>
+              <option value="openrouter">OpenRouter free router</option>
               <option value="openai">OpenAI / ChatGPT</option>
             </select>
-            <div class="hint">OpenAI requires /etc/morse-whisperer/ai.env.</div>
+            <div class="hint">Cloud providers use API keys from /etc/morse-whisperer/ai.env.</div>
           </div>
 
           <div class="setting">
             <label for="setAiModel">Reply model</label>
-            <input id="setAiModel" type="text" placeholder="gpt-4.1-mini">
+            <input id="setAiModel" type="text" placeholder="gemini-2.5-flash-lite">
             <div class="hint">Used only when the reply helper is enabled.</div>
           </div>
 
@@ -1980,7 +1983,7 @@ function aiUpdateProviderBadge(ctxOrSettings){
   const enabled = ctxOrSettings && ctxOrSettings.ai_enabled === true;
   const provider = (ctxOrSettings && ctxOrSettings.ai_provider) || 'local';
 
-  if(enabled && provider === 'openai'){
+  if(enabled && provider !== 'local'){
     badge.textContent = 'reply helper on';
     badge.className = 'badge good';
   }else{
@@ -2359,7 +2362,7 @@ async function loadSettings(){
     $('setOutputDevice').value=cfg.audio_output_device||'plughw:2,0';
     if ($('setAiEnabled')) $('setAiEnabled').value=String(cfg.ai_enabled===true);
     if ($('setAiProvider')) $('setAiProvider').value=cfg.ai_provider||'local';
-    if ($('setAiModel')) $('setAiModel').value=cfg.ai_model||'gpt-4.1-mini';
+    if ($('setAiModel')) $('setAiModel').value=cfg.ai_model||'gemini-2.5-flash-lite';
     if ($('setAiRealtimeAssist')) $('setAiRealtimeAssist').value=String(cfg.ai_realtime_assist===true);
     updateFilterToggleButton(cfg);
     $('cwTone').value=cfg.cw_generator_tone_hz || cfg.target_tone_hz || 700;
@@ -2404,7 +2407,7 @@ async function saveSettings(){
     audio_output_device:$('setOutputDevice').value,
     ai_enabled:$('setAiEnabled') ? ($('setAiEnabled').value==='true') : false,
     ai_provider:$('setAiProvider') ? $('setAiProvider').value : 'local',
-    ai_model:$('setAiModel') ? $('setAiModel').value : 'gpt-4.1-mini',
+    ai_model:$('setAiModel') ? $('setAiModel').value : 'gemini-2.5-flash-lite',
     ai_realtime_assist:$('setAiRealtimeAssist') ? ($('setAiRealtimeAssist').value==='true') : false,
     ai_require_confirmation:true,
     volume_percent:Number($('cwVolume').value),
@@ -2664,8 +2667,8 @@ function renderCqStatus(s){
   if($('cqCatBaud')) $('cqCatBaud').value=cfg.cq_cat_baud||19200;
   if($('cqBands')) $('cqBands').value=cfg.cq_band_allowlist||'40m,20m,15m,10m';
   if($('cqBusyRms')) $('cqBusyRms').value=cfg.cq_busy_rms_threshold ?? 0.006;
-  if($('cqAiProvider')) $('cqAiProvider').value=(cfg.cq_ai_provider||'openai');
-  if($('cqAiModel')) $('cqAiModel').value=(cfg.cq_ai_model||'gpt-4.1-mini');
+  if($('cqAiProvider')) $('cqAiProvider').value=(cfg.cq_ai_provider||'gemini');
+  if($('cqAiModel')) $('cqAiModel').value=(cfg.cq_ai_model||'gemini-2.5-flash-lite');
 
   const state=channel.state||'unknown';
   if($('cqStateBadge')){
@@ -2679,7 +2682,7 @@ function renderCqStatus(s){
     $('cqRadio').textContent=freq+' '+(radio.mode||'');
   }
   if($('cqCat')) $('cqCat').textContent=radio.available ? 'online via '+(radio.backend||'rigctl') : (radio.error||'disabled');
-  if($('cqAi')) $('cqAi').textContent=((s.ai&&s.ai.provider)||cfg.cq_ai_provider||'openai')+' / '+((s.ai&&s.ai.model)||cfg.cq_ai_model||'gpt-4.1-mini');
+  if($('cqAi')) $('cqAi').textContent=((s.ai&&s.ai.provider)||cfg.cq_ai_provider||'gemini')+' / '+((s.ai&&s.ai.model)||cfg.cq_ai_model||'gemini-2.5-flash-lite');
   if($('cqTx')) $('cqTx').textContent=s.transmit_available ? 'available' : 'disabled in this milestone';
 }
 
@@ -2706,8 +2709,8 @@ async function saveCqSettings(){
     cq_band_allowlist:$('cqBands')?.value||'40m,20m,15m,10m',
     cq_busy_rms_threshold:Number($('cqBusyRms')?.value||0.006),
     cq_ai_enabled:true,
-    cq_ai_provider:$('cqAiProvider')?.value||'openai',
-    cq_ai_model:$('cqAiModel')?.value||'gpt-4.1-mini'
+    cq_ai_provider:$('cqAiProvider')?.value||'gemini',
+    cq_ai_model:$('cqAiModel')?.value||'gemini-2.5-flash-lite'
   };
   try{
     const r=await fetch('/api/cq/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -3018,7 +3021,7 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
         <span id="cqStateBadge" class="badge">listen only</span>
       </div>
       <div class="small" style="margin-bottom:12px">
-        This app can listen, read CAT status, judge whether the frequency looks busy, and ask OpenAI for draft planning. It cannot transmit, key PTT, or change frequency yet.
+        This app can listen, read CAT status, judge whether the frequency looks busy, and ask the selected AI provider for draft planning. It cannot transmit, key PTT, or change frequency yet.
       </div>
       <div class="settingsGrid">
         <div class="setting"><label for="cqEnabled">CQ app</label><select id="cqEnabled"><option value="false">Standby</option><option value="true">Enabled - listen only</option></select><div class="hint">Enables CQ status logic only.</div></div>
@@ -3029,8 +3032,8 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
         <div class="setting"><label for="cqCatBaud">CAT baud</label><input id="cqCatBaud" type="number" min="1200" max="115200" step="1200"><div class="hint">G90 default path is usually 19200.</div></div>
         <div class="setting"><label for="cqBands">Band allowlist</label><input id="cqBands" type="text" placeholder="40m,20m,15m,10m"><div class="hint">Planning guardrail for later frequency changes.</div></div>
         <div class="setting"><label for="cqBusyRms">Busy RMS threshold</label><input id="cqBusyRms" type="number" min="0.0001" max="0.2" step="0.0005"><div class="hint">Audio above this may mean occupied.</div></div>
-        <div class="setting"><label for="cqAiProvider">CQ AI engine</label><select id="cqAiProvider"><option value="openai">OpenAI / ChatGPT</option><option value="local">Local fallback</option></select><div class="hint">OpenAI uses /etc/morse-whisperer/ai.env.</div></div>
-        <div class="setting"><label for="cqAiModel">CQ AI model</label><input id="cqAiModel" type="text" placeholder="gpt-4.1-mini"><div class="hint">Used for CQ planning and reply drafts.</div></div>
+        <div class="setting"><label for="cqAiProvider">CQ AI engine</label><select id="cqAiProvider"><option value="gemini">Gemini free tier</option><option value="local">Local fallback</option><option value="groq">Groq</option><option value="openrouter">OpenRouter free router</option><option value="openai">OpenAI / ChatGPT</option></select><div class="hint">Cloud providers use API keys from /etc/morse-whisperer/ai.env.</div></div>
+        <div class="setting"><label for="cqAiModel">CQ AI model</label><input id="cqAiModel" type="text" placeholder="gemini-2.5-flash-lite"><div class="hint">Used for CQ planning and reply drafts.</div></div>
       </div>
       <div class="controls" style="margin-top:14px">
         <button class="primary" onclick="saveCqSettings()">Save CQ settings</button>
@@ -3075,8 +3078,8 @@ function renderCqStatus(s){
   $('cqCatBaud').value=cfg.cq_cat_baud||19200;
   $('cqBands').value=cfg.cq_band_allowlist||'40m,20m,15m,10m';
   $('cqBusyRms').value=cfg.cq_busy_rms_threshold ?? 0.006;
-  $('cqAiProvider').value=cfg.cq_ai_provider||'openai';
-  $('cqAiModel').value=cfg.cq_ai_model||'gpt-4.1-mini';
+  $('cqAiProvider').value=cfg.cq_ai_provider||'gemini';
+  $('cqAiModel').value=cfg.cq_ai_model||'gemini-2.5-flash-lite';
   const state=channel.state||'unknown';
   $('cqStateBadge').textContent=(s.phase||'listen only').replaceAll('_',' ');
   $('cqStateBadge').className='badge '+(state==='clear'?'good':state==='busy'?'warn':'');
@@ -3091,7 +3094,7 @@ function renderCqStatus(s){
   const freq=radio.frequency_hz ? (Number(radio.frequency_hz)/1000000).toFixed(5)+' MHz' : '--';
   $('cqRadio').textContent=freq+' '+(radio.mode||'');
   $('cqCat').textContent=radio.available ? 'online via '+(radio.backend||'rigctl') : (radio.error||'disabled');
-  $('cqAi').textContent=((s.ai&&s.ai.provider)||cfg.cq_ai_provider||'openai')+' / '+((s.ai&&s.ai.model)||cfg.cq_ai_model||'gpt-4.1-mini');
+  $('cqAi').textContent=((s.ai&&s.ai.provider)||cfg.cq_ai_provider||'gemini')+' / '+((s.ai&&s.ai.model)||cfg.cq_ai_model||'gemini-2.5-flash-lite');
   $('cqTx').textContent=s.transmit_available ? 'available' : 'disabled in this milestone';
 }
 async function loadCqStatus(){
@@ -3113,8 +3116,8 @@ async function saveCqSettings(){
     cq_band_allowlist:$('cqBands').value||'40m,20m,15m,10m',
     cq_busy_rms_threshold:Number($('cqBusyRms').value||0.006),
     cq_ai_enabled:true,
-    cq_ai_provider:$('cqAiProvider').value||'openai',
-    cq_ai_model:$('cqAiModel').value||'gpt-4.1-mini'
+    cq_ai_provider:$('cqAiProvider').value||'gemini',
+    cq_ai_model:$('cqAiModel').value||'gemini-2.5-flash-lite'
   };
   const r=await fetch('/api/cq/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   const s=await r.json();
@@ -3558,7 +3561,7 @@ def create_app(state, ring, config: Dict) -> Flask:
         "audio_output_device": "plughw:2,0",
         "ai_enabled": False,
         "ai_provider": "local",
-        "ai_model": "gpt-4.1-mini",
+        "ai_model": "gemini-2.5-flash-lite",
         "ai_realtime_assist": False,
         "ai_require_confirmation": True,
         "ai_reply_style": "short_cw",
@@ -4075,10 +4078,10 @@ def create_app(state, ring, config: Dict) -> Flask:
                 value = "sound"
             elif key == "tone_mode" and value not in ("session_auto", "auto", "fixed"):
                 value = "session_auto"
-            elif key == "ai_provider" and value not in ("local", "openai"):
+            elif key == "ai_provider" and value not in ("local", "gemini", "groq", "openrouter", "openai"):
                 value = "local"
             elif key == "ai_model":
-                value = str(value or "gpt-4.1-mini").strip()[:80]
+                value = str(value or "gemini-2.5-flash-lite").strip()[:120]
             elif key == "audio_filter_mode" and value not in ("off", "wide", "narrow", "custom"):
                 value = "wide"
             elif key in ("audio_filter_bandwidth_hz", "audio_filter_wide_hz", "audio_filter_narrow_hz", "audio_filter_max_hz"):

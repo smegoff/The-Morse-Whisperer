@@ -64,8 +64,8 @@ DEFAULTS: Dict[str, Any] = {
     "cq_busy_rms_threshold": 0.006,
     "cq_busy_snr_threshold_db": 6.0,
     "cq_ai_enabled": True,
-    "cq_ai_provider": "openai",
-    "cq_ai_model": "gpt-4.1-mini",
+    "cq_ai_provider": "gemini",
+    "cq_ai_model": "gemini-2.5-flash-lite",
     "cq_allow_transmit": False,
 }
 

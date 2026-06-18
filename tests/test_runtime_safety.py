@@ -12,6 +12,7 @@ from unittest import mock
 import numpy as np
 
 from morse_whisperer.app import MorseWhispererApp
+from morse_whisperer.ai import analyse_copy
 from morse_whisperer.cq import channel_status, cq_config, receive_status, separated_tone_competitor
 from morse_whisperer.display import FramebufferDisplay
 from morse_whisperer.state import SharedState
@@ -291,16 +292,24 @@ class RuntimeResetTests(unittest.TestCase):
         with mock.patch("morse_whisperer.cq.save_config"):
             response = app.test_client().post(
                 "/api/cq/settings",
-                json={"cq_enabled": True, "cq_callsign": "zl1sxg", "cq_cat_baud": 999999},
+                json={
+                    "cq_enabled": True,
+                    "cq_callsign": "zl1sxg",
+                    "cq_cat_baud": 999999,
+                    "cq_ai_provider": "openrouter",
+                    "cq_ai_model": "openrouter/free",
+                },
             )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(config["cq_enabled"])
         self.assertEqual(config["cq_callsign"], "ZL1SXG")
         self.assertEqual(config["cq_cat_baud"], 115200)
+        self.assertEqual(config["cq_ai_provider"], "openrouter")
+        self.assertEqual(config["cq_ai_model"], "openrouter/free")
         self.assertFalse(config["cq_allow_transmit"])
 
-    def test_cq_plan_uses_openai_config_without_transmit(self) -> None:
+    def test_cq_plan_uses_selected_ai_config_without_transmit(self) -> None:
         class DummyState:
             def snapshot(self):
                 return {
@@ -319,8 +328,8 @@ class RuntimeResetTests(unittest.TestCase):
             "station_callsign": "ZL1SXG",
             "cq_callsign": "ZL1SXG",
             "cq_ai_enabled": True,
-            "cq_ai_provider": "openai",
-            "cq_ai_model": "gpt-4.1-mini",
+            "cq_ai_provider": "gemini",
+            "cq_ai_model": "gemini-2.5-flash-lite",
         }
         app = create_app(DummyState(), None, config)
 
@@ -329,7 +338,7 @@ class RuntimeResetTests(unittest.TestCase):
                 "morse_whisperer.cq.analyse_copy",
                 return_value={
                     "ok": True,
-                    "provider": "openai",
+                    "provider": "gemini",
                     "detected_intent": "calling_cq",
                     "their_call": "ZL2ABC",
                     "warnings": [],
@@ -339,7 +348,7 @@ class RuntimeResetTests(unittest.TestCase):
                 "morse_whisperer.cq.suggest_reply",
                 return_value={
                     "ok": True,
-                    "provider": "openai",
+                    "provider": "gemini",
                     "suggested_reply_text": "ZL2ABC DE ZL1SXG ZL1SXG KN",
                     "warnings": [],
                 },
@@ -351,9 +360,25 @@ class RuntimeResetTests(unittest.TestCase):
         body = response.get_json()
         self.assertFalse(body["transmit_available"])
         self.assertEqual(body["receive"]["state"], "decoded")
-        self.assertEqual(body["reply"]["provider"], "openai")
-        self.assertEqual(analyse.call_args.args[1]["ai_provider"], "openai")
-        self.assertEqual(analyse.call_args.args[1]["ai_model"], "gpt-4.1-mini")
+        self.assertEqual(body["reply"]["provider"], "gemini")
+        self.assertEqual(analyse.call_args.args[1]["ai_provider"], "gemini")
+        self.assertEqual(analyse.call_args.args[1]["ai_model"], "gemini-2.5-flash-lite")
+
+    def test_gemini_provider_uses_gemini_key_and_falls_back_locally(self) -> None:
+        config = {
+            "station_callsign": "ZL1SXG",
+            "ai_enabled": True,
+            "ai_provider": "gemini",
+            "ai_model": "gemini-2.5-flash-lite",
+            "ai_api_key_env": "OPENAI_API_KEY",
+        }
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            result = analyse_copy("CQ CQ DE ZL2ABC K", config)
+
+        self.assertEqual(result["provider"], "local")
+        self.assertTrue(result["fallback_used"])
+        self.assertIn("GEMINI_API_KEY", " ".join(result["warnings"]))
 
     def test_web_apps_are_separate_pages(self) -> None:
         state = SharedState()
@@ -374,6 +399,8 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertIn("CQ Rag Chew", cq_html)
         self.assertIn("planCqReply", cq_html)
         self.assertIn("waterfallCanvas", cq_html)
+        self.assertIn("Gemini free tier", cq_html)
+        self.assertIn("OpenRouter free router", cq_html)
 
     def test_waterfall_api_returns_spectrum_rows(self) -> None:
         class DummyRing:
@@ -424,8 +451,8 @@ class RuntimeResetTests(unittest.TestCase):
             config={
                 "cq_callsign": "ZL1SXG",
                 "cq_cat_enabled": False,
-                "cq_ai_provider": "openai",
-                "cq_ai_model": "gpt-4.1-mini",
+                "cq_ai_provider": "gemini",
+                "cq_ai_model": "gemini-2.5-flash-lite",
                 "cq_busy_rms_threshold": 0.006,
                 "cq_busy_snr_threshold_db": 6.0,
             },

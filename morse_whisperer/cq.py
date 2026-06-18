@@ -25,8 +25,8 @@ CQ_DEFAULTS: Dict[str, Any] = {
     "cq_busy_rms_threshold": 0.006,
     "cq_busy_snr_threshold_db": 6.0,
     "cq_ai_enabled": True,
-    "cq_ai_provider": "openai",
-    "cq_ai_model": "gpt-4.1-mini",
+    "cq_ai_provider": "gemini",
+    "cq_ai_model": "gemini-2.5-flash-lite",
     "cq_allow_transmit": False,
 }
 
@@ -337,8 +337,8 @@ def cq_status(snapshot: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any
         "config": cfg,
         "ai": {
             "enabled": bool(cfg.get("cq_ai_enabled")),
-            "provider": str(cfg.get("cq_ai_provider") or "openai"),
-            "model": str(cfg.get("cq_ai_model") or config.get("ai_model") or "gpt-4.1-mini"),
+            "provider": str(cfg.get("cq_ai_provider") or "gemini"),
+            "model": str(cfg.get("cq_ai_model") or config.get("ai_model") or "gemini-2.5-flash-lite"),
             "mode": "suggestion_only",
         },
         "radio": read_cat_status(cfg),
@@ -354,8 +354,8 @@ def latest_copy(snapshot: Dict[str, Any]) -> str:
 def cq_ai_config(config: Dict[str, Any], cfg: Dict[str, Any]) -> Dict[str, Any]:
     ai_cfg = dict(config)
     ai_cfg["ai_enabled"] = bool(cfg.get("cq_ai_enabled"))
-    ai_cfg["ai_provider"] = str(cfg.get("cq_ai_provider") or "openai")
-    ai_cfg["ai_model"] = str(cfg.get("cq_ai_model") or config.get("ai_model") or "gpt-4.1-mini")
+    ai_cfg["ai_provider"] = str(cfg.get("cq_ai_provider") or "gemini")
+    ai_cfg["ai_model"] = str(cfg.get("cq_ai_model") or config.get("ai_model") or "gemini-2.5-flash-lite")
     ai_cfg["ai_operator_callsign"] = str(cfg.get("cq_callsign") or config.get("station_callsign") or "N0CALL")
     ai_cfg["ai_reply_style"] = "short_cw"
     ai_cfg["ai_require_confirmation"] = True
@@ -385,7 +385,7 @@ def cq_plan(snapshot: Dict[str, Any], config: Dict[str, Any], requested_mode: st
     return {
         "ok": True,
         "app": "CQ Rag Chew",
-        "phase": "openai_planning_listen_only",
+        "phase": "ai_planning_listen_only",
         "transmit_available": False,
         "copy": copy,
         "channel": channel,
@@ -395,7 +395,7 @@ def cq_plan(snapshot: Dict[str, Any], config: Dict[str, Any], requested_mode: st
         "reply": reply,
         "warnings": warnings,
         "safety": [
-            "OpenAI is used only for analysis and draft suggestions.",
+            "External AI providers are used only for analysis and draft suggestions.",
             "No CQ Rag Chew endpoint can transmit, key PTT, or change frequency in this milestone.",
             "Human review remains required before any future transmit path.",
         ],
@@ -436,10 +436,10 @@ def install_cq_routes(app, state, config: Dict[str, Any]) -> None:
                 value = clamp_float(value, 0.0001, 0.2, 0.006)
             elif key == "cq_busy_snr_threshold_db":
                 value = clamp_float(value, 0.0, 40.0, 6.0)
-            elif key == "cq_ai_provider" and value not in ("local", "openai"):
-                value = "openai"
+            elif key == "cq_ai_provider" and value not in ("local", "gemini", "groq", "openrouter", "openai"):
+                value = "gemini"
             elif key == "cq_ai_model":
-                value = str(value or "gpt-4.1-mini").strip()[:80]
+                value = str(value or "gemini-2.5-flash-lite").strip()[:120]
 
             config[key] = value
             changed[key] = value
