@@ -59,7 +59,7 @@
   "audio_queue_seconds": 60.0,
   "copy_min_confidence": 0.85,
   "copy_min_snr": 12.0,
-  "clear_after_silence_sec": 86400.0,
+  "clear_after_silence_sec": 20.0,
   "report_dir": "/opt/morse-whisperer-pi/reports",
   "copy_min_decoded_symbols": 5,
   "copy_max_failed_symbols": 0,

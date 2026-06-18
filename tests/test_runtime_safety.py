@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from morse_whisperer.app import MorseWhispererApp
+from morse_whisperer.display import FramebufferDisplay
 from morse_whisperer.touch import TouchscreenMonitor
 
 
@@ -66,6 +67,32 @@ class RuntimeResetTests(unittest.TestCase):
             monitor.handle_tap(raw_x, 3900)
 
         self.assertEqual(actions, ["page", "scan", "reset", "clear"])
+
+    def test_tft_sleep_uses_idle_timeout(self) -> None:
+        class DummyState:
+            def __init__(self):
+                self.snap = {
+                    "config": {
+                        "tft_screen_timeout_enabled": True,
+                        "tft_screen_timeout_sec": 15,
+                    },
+                    "quality": {"recent_activity": False, "squelch_open": False},
+                    "audio": {"level_status": "IDLE"},
+                    "decode": {"accepted": False},
+                }
+
+            def snapshot(self):
+                return self.snap
+
+            def append_status(self, message):
+                pass
+
+        display = FramebufferDisplay({"display_enabled": False}, DummyState())
+        display.last_screen_activity_at -= 16
+        self.assertTrue(display.should_sleep(display.state.snapshot()))
+
+        display.state.snap["quality"]["recent_activity"] = True
+        self.assertFalse(display.should_sleep(display.state.snapshot()))
 
 
 class ProfileSwitchTests(unittest.TestCase):

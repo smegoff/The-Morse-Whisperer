@@ -39,6 +39,8 @@ class FramebufferDisplay:
         self.frozen_img: Optional[Image.Image] = None
         self._last_tft_next_page_counter = 0
         self._last_tft_freeze_counter = 0
+        self.last_screen_activity_at = time.time()
+        self.screen_sleeping = False
         self.splash_enabled = bool(config.get("splash_enabled", True))
         self.splash_seconds = float(config.get("splash_seconds", 4.0))
         self.splash_until = time.time() + self.splash_seconds if self.splash_enabled else 0.0
@@ -93,15 +95,21 @@ class FramebufferDisplay:
         idx = self.PAGES.index(self.page) if self.page in self.PAGES else 0
         self.page = self.PAGES[(idx + 1) % len(self.PAGES)]
         self.frozen_img = None
+        self.note_screen_activity()
         self.state.append_status(f"TFT page: {self.page}")
 
     def toggle_freeze(self):
+        self.note_screen_activity()
         if self.frozen_img is None:
             self.frozen_img = self.draw_screen()
             self.state.append_status("TFT display frozen")
         else:
             self.frozen_img = None
             self.state.append_status("TFT display unfrozen")
+
+    def note_screen_activity(self):
+        self.last_screen_activity_at = time.time()
+        self.screen_sleeping = False
 
     def check_control_requests(self):
         try:
@@ -123,6 +131,39 @@ class FramebufferDisplay:
 
         except Exception as e:
             self.state.append_status(f"TFT control request failed: {e}")
+
+    def is_screen_active(self, snap) -> bool:
+        q = snap.get("quality", {}) or {}
+        audio = snap.get("audio", {}) or {}
+        dec = snap.get("decode", {}) or {}
+
+        if q.get("recent_activity") or q.get("squelch_open"):
+            return True
+        if dec.get("accepted"):
+            return True
+        if str(audio.get("level_status") or "").upper() not in ("", "--", "IDLE", "LOW"):
+            return True
+        return False
+
+    def should_sleep(self, snap) -> bool:
+        cfg = snap.get("config", {}) if isinstance(snap, dict) else {}
+        if not bool(cfg.get("tft_screen_timeout_enabled", False)):
+            return False
+
+        try:
+            timeout = float(cfg.get("tft_screen_timeout_sec", 300) or 300)
+        except Exception:
+            timeout = 300.0
+        timeout = max(15.0, min(3600.0, timeout))
+
+        if self.is_screen_active(snap):
+            self.note_screen_activity()
+            return False
+
+        return (time.time() - self.last_screen_activity_at) >= timeout
+
+    def draw_sleep_screen(self):
+        return Image.new("RGB", (self.width, self.height), (0, 0, 0))
 
     def measure_text(self, draw, text: str, font):
         sample = text if text else "Ag"
@@ -614,6 +655,12 @@ class FramebufferDisplay:
             return self.draw_splash()
 
         snap = self.state.snapshot()
+
+        if self.should_sleep(snap):
+            if not self.screen_sleeping:
+                self.screen_sleeping = True
+                self.state.append_status("TFT sleeping after inactivity")
+            return self.draw_sleep_screen()
 
         bg = (5, 9, 14)
         panel = (14, 22, 30)

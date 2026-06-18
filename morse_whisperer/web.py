@@ -1532,19 +1532,19 @@ input:focus,select:focus,textarea:focus{
           </div>
 
           <div class="setting">
-            <label for="setTftIdleEnabled">TFT idle splash</label>
+            <label for="setTftIdleEnabled">TFT sleep</label>
             <select id="setTftIdleEnabled">
               <option value="true">Enabled</option>
               <option value="false">Disabled</option>
             </select>
-            <div class="hint">Shows the horse splash after no CW or button activity.</div>
+            <div class="hint">Blanks the TFT after no CW or button activity.</div>
             <img class="tftIdlePreview" src="/assets/horse_boot_splash.png" alt="TFT idle splash preview">
           </div>
 
           <div class="setting">
             <label for="setTftIdleSeconds">TFT idle timeout</label>
             <input id="setTftIdleSeconds" type="number" min="15" max="3600" step="15">
-            <div class="hint">Seconds before idle splash. 300 = five minutes. Any button wakes the TFT.</div>
+            <div class="hint">Seconds before the TFT sleeps. 300 = five minutes. CW activity wakes it.</div>
           </div>
 
           <div class="setting">
@@ -3134,6 +3134,7 @@ def create_app(state, ring, config: Dict) -> Flask:
         "decode_window_sec": 10,
         "char_gap_units": 2.25,
         "word_gap_units": 6.0,
+        "clear_after_silence_sec": 20.0,
         "adaptive_word_gap_enabled": False,
         "audio_output_device": "plughw:2,0",
         "ai_enabled": False,
