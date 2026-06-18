@@ -439,6 +439,22 @@ def _parse_provider_json(provider: str, model: str, output_text: str) -> Dict[st
     return parsed
 
 
+def _provider_error_summary(provider: str, exc: Exception) -> str:
+    text = str(exc)
+    lower = text.lower()
+    if "http 401" in lower or "unauthenticated" in lower or "invalid authentication credentials" in lower:
+        return f"{provider} authentication failed; local fallback used. Check or rotate the {provider} API key."
+    if "http 429" in lower or "quota" in lower or "rate limit" in lower:
+        return f"{provider} provider quota/rate limit hit; local fallback used."
+    if "is not set" in lower:
+        env_hint = "GEMINI_API_KEY" if provider == "gemini" else f"{provider.upper()}_API_KEY"
+        return f"{provider} API key is not set; local fallback used. Set {env_hint}."
+    first_line = text.splitlines()[0].strip() if text else exc.__class__.__name__
+    if len(first_line) > 180:
+        first_line = first_line[:177] + "..."
+    return f"{provider} provider failed; local fallback used: {first_line}"
+
+
 def _openai_request(config: Dict[str, Any], messages: List[Dict[str, str]]) -> Dict[str, Any]:
     api_key_env = _env_key(config, "openai")
     api_key = os.environ.get(api_key_env, "").strip()
@@ -867,7 +883,7 @@ def analyse_copy(text: str, config: Dict[str, Any], snap: Optional[Dict[str, Any
     except Exception as e:
         local["fallback_used"] = True
         local.setdefault("warnings", [])
-        local["warnings"].append(f"{provider} provider failed; local fallback used: {e}")
+        local["warnings"].append(_provider_error_summary(provider, e))
         return local
 
 
@@ -895,7 +911,7 @@ def suggest_reply(analysis: Dict[str, Any], config: Dict[str, Any], requested_mo
     except Exception as e:
         local["fallback_used"] = True
         local.setdefault("warnings", [])
-        local["warnings"].append(f"{provider} provider failed; local fallback used: {e}")
+        local["warnings"].append(_provider_error_summary(provider, e))
         return local
 
 

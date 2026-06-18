@@ -2741,6 +2741,23 @@ async function scanWifi(){
   }
 }
 
+function compactWarnings(items){
+  const seen=new Set(), out=[];
+  for(const item of (items||[])){
+    let text=String(item||'').trim().replace(/\s+/g,' ');
+    if(!text) continue;
+    if(text.includes('invalid authentication credentials') || text.includes('UNAUTHENTICATED') || text.includes('HTTP 401')){
+      text='Gemini authentication failed; check or rotate the API key.';
+    }
+    if(text.length>220) text=text.slice(0,217)+'...';
+    const key=text.toLowerCase();
+    if(seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
+
 async function loadAiEnvStatus(){
   try{
     const r=await fetch('/api/ai/env?ts='+Date.now(),{cache:'no-store'});
@@ -2851,7 +2868,7 @@ async function planCqReply(){
     const r=await fetch('/api/cq/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'auto'})});
     const s=await r.json();
     const analysis=s.analysis||{}, reply=s.reply||{}, channel=s.channel||{};
-    const warnings=(s.warnings||[]).concat((reply.warnings||[])).filter(Boolean);
+    const warnings=compactWarnings((s.warnings||[]).concat(reply.warnings||[]));
     const lines=[
       'Phase: '+(s.phase||'--'),
       'Channel: '+(channel.state||'unknown')+' - '+(channel.reason||''),
@@ -3194,6 +3211,22 @@ button,.btn{cursor:pointer}.primary{background:linear-gradient(135deg,rgba(102,2
 </div>
 <script>
 function $(id){return document.getElementById(id)}
+function compactWarnings(items){
+  const seen=new Set(), out=[];
+  for(const item of (items||[])){
+    let text=String(item||'').trim().replace(/\s+/g,' ');
+    if(!text) continue;
+    if(text.includes('invalid authentication credentials') || text.includes('UNAUTHENTICATED') || text.includes('HTTP 401')){
+      text='Gemini authentication failed; check or rotate the API key.';
+    }
+    if(text.length>220) text=text.slice(0,217)+'...';
+    const key=text.toLowerCase();
+    if(seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
 async function loadAiEnvStatus(){
   try{
     const r=await fetch('/api/ai/env?ts='+Date.now(),{cache:'no-store'});
@@ -3287,7 +3320,7 @@ async function planCqReply(){
     const r=await fetch('/api/cq/plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'auto'})});
     const s=await r.json();
     const analysis=s.analysis||{}, reply=s.reply||{}, channel=s.channel||{}, receive=s.receive||{};
-    const warnings=(s.warnings||[]).concat((reply.warnings||[])).filter(Boolean);
+    const warnings=compactWarnings((s.warnings||[]).concat(reply.warnings||[]));
     const lines=[
       'Phase: '+(s.phase||'--'),
       'Receive: '+(receive.state||'quiet')+' - '+(receive.heard_text||'(no decoded text yet)'),
@@ -3310,7 +3343,7 @@ async function transcribeVoice(){
   try{
     const r=await fetch('/api/cq/voice/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seconds:12})});
     const s=await r.json();
-    const warnings=(s.warnings||[]).filter(Boolean);
+    const warnings=compactWarnings(s.warnings||[]);
     const lines=[
       'Provider: '+(s.provider||'--')+' / '+(s.model||'--'),
       'Audio: '+Number(s.duration_sec||0).toFixed(1)+'s, rms '+Number(s.rms||0).toFixed(4)+', peak '+Number(s.peak||0).toFixed(4),

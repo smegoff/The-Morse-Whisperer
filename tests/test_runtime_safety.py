@@ -13,7 +13,7 @@ import numpy as np
 
 from morse_whisperer.app import MorseWhispererApp
 from morse_whisperer.ai import analyse_copy
-from morse_whisperer.cq import channel_status, cq_config, receive_status, separated_tone_competitor
+from morse_whisperer.cq import channel_status, cq_config, dedupe_warnings, receive_status, separated_tone_competitor
 from morse_whisperer.display import FramebufferDisplay
 from morse_whisperer.state import SharedState
 from morse_whisperer.touch import TouchscreenMonitor
@@ -379,6 +379,36 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertEqual(result["provider"], "local")
         self.assertTrue(result["fallback_used"])
         self.assertIn("GEMINI_API_KEY", " ".join(result["warnings"]))
+
+    def test_gemini_auth_failure_warning_is_short(self) -> None:
+        config = {
+            "station_callsign": "ZL1SXG",
+            "ai_enabled": True,
+            "ai_provider": "gemini",
+            "ai_model": "gemini-2.5-flash-lite",
+        }
+
+        with mock.patch(
+            "morse_whisperer.ai._provider_request",
+            side_effect=RuntimeError(
+                'gemini HTTP 401: {"error":{"message":"Request had invalid authentication credentials","status":"UNAUTHENTICATED"}}'
+            ),
+        ):
+            result = analyse_copy("CQ CQ DE ZL2ABC K", config)
+
+        warnings = " ".join(result["warnings"])
+        self.assertIn("authentication failed", warnings)
+        self.assertIn("rotate", warnings)
+        self.assertNotIn("{\"error\"", warnings)
+
+    def test_cq_warning_dedupe_preserves_order(self) -> None:
+        warnings = dedupe_warnings([
+            "No decoded copy available.",
+            "No decoded copy available.",
+            " Signal is audible but weak/noisy. ",
+        ])
+
+        self.assertEqual(warnings, ["No decoded copy available.", "Signal is audible but weak/noisy."])
 
     def test_ai_env_api_saves_and_masks_provider_key(self) -> None:
         class DummyState:

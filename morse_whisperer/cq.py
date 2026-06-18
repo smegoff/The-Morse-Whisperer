@@ -381,6 +381,7 @@ def cq_plan(snapshot: Dict[str, Any], config: Dict[str, Any], requested_mode: st
         warnings.append("Audio activity is present, but no usable decoded text is available yet.")
     if channel.get("state") == "clear":
         warnings.append("Frequency appears quiet; continue listening or tune before planning a response.")
+    warnings = dedupe_warnings(warnings)
 
     return {
         "ok": True,
@@ -400,6 +401,21 @@ def cq_plan(snapshot: Dict[str, Any], config: Dict[str, Any], requested_mode: st
             "Human review remains required before any future transmit path.",
         ],
     }
+
+
+def dedupe_warnings(warnings: list[Any]) -> list[str]:
+    seen = set()
+    out = []
+    for warning in warnings:
+        text = str(warning or "").strip()
+        if not text:
+            continue
+        key = " ".join(text.split()).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(text)
+    return out
 
 
 def install_cq_routes(app, state, config: Dict[str, Any]) -> None:
